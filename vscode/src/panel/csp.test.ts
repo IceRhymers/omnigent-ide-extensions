@@ -1,5 +1,6 @@
 /**
- * A5 CSP unit tests — guards PM2 (connect-src must include wss: + the resolved WS origin).
+ * A5/A6 CSP unit tests — guards PM2 (connect-src must include wss: + the resolved WS origin).
+ * A6 additions: wasm-unsafe-eval in script-src, worker-src blob: for Monaco workers.
  */
 import { describe, it, expect } from "vitest";
 import { buildCsp, wsOriginsForServer } from "./csp";
@@ -35,6 +36,12 @@ describe("buildCsp (PM2 guard)", () => {
     // Extract the script-src directive only and confirm it has no unsafe-inline.
     const scriptDirective = csp.split(";").find((d) => d.trim().startsWith("script-src")) ?? "";
     expect(scriptDirective).not.toContain("'unsafe-inline'");
+  });
+
+  it("script-src includes wasm-unsafe-eval (Monaco wasm runtime)", () => {
+    const csp = buildCsp(base);
+    const scriptDirective = csp.split(";").find((d) => d.trim().startsWith("script-src")) ?? "";
+    expect(scriptDirective).toContain("'wasm-unsafe-eval'");
   });
 
   it("frame-src is none (PM2: no iframe)", () => {
@@ -73,5 +80,25 @@ describe("buildCsp (PM2 guard)", () => {
   it("cspSource is included in script-src when provided", () => {
     const csp = buildCsp({ ...base, cspSource: "vscode-resource:" });
     expect(csp).toContain("vscode-resource:");
+  });
+
+  it("worker-src includes blob: (Monaco workers)", () => {
+    const csp = buildCsp(base);
+    const workerDirective = csp.split(";").find((d) => d.trim().startsWith("worker-src")) ?? "";
+    expect(workerDirective).toContain("blob:");
+  });
+
+  it("worker-src includes cspSource when provided", () => {
+    const csp = buildCsp({ ...base, cspSource: "vscode-webview-resource:" });
+    const workerDirective = csp.split(";").find((d) => d.trim().startsWith("worker-src")) ?? "";
+    expect(workerDirective).toContain("vscode-webview-resource:");
+    expect(workerDirective).toContain("blob:");
+  });
+
+  it("img-src includes https: for remote images", () => {
+    const csp = buildCsp(base);
+    const imgDirective = csp.split(";").find((d) => d.trim().startsWith("img-src")) ?? "";
+    expect(imgDirective).toContain("https:");
+    expect(imgDirective).toContain("data:");
   });
 });

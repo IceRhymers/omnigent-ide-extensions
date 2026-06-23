@@ -1,5 +1,5 @@
 /**
- * A5 — CSP string construction (pure, unit-testable, guards PM2).
+ * A5/A6 — CSP string construction (pure, unit-testable, guards PM2).
  *
  * buildCsp() produces a strict nonce-based Content-Security-Policy for the
  * Omnigent WebviewView. It is a PURE function with no VS Code API dependency
@@ -7,17 +7,19 @@
  *
  * Key rules (per plan §A5 + ADR):
  *  - default-src 'none' — deny everything not explicitly allowed.
- *  - script-src 'nonce-{nonce}' — only inline scripts with the nonce (our
- *    bootstrap). No 'unsafe-inline', no 'unsafe-eval'.
+ *  - script-src 'nonce-{nonce}' 'wasm-unsafe-eval' — nonce covers the bootstrap
+ *    module and import-map; wasm-unsafe-eval required by Monaco worker (A6+).
+ *    No 'unsafe-inline', no 'unsafe-eval'.
  *  - style-src 'nonce-{nonce}' 'unsafe-inline' — OmnigentApp injects runtime
  *    CSS via style attributes; unsafe-inline on style-src is the recommended
  *    trade-off when the injected styles are extension-controlled.
  *  - connect-src — the https/http server API origin + ws:/wss: for each WS
  *    origin provided (covers terminal WS + managed-sandbox WS, R9/Q2).
- *  - img-src — the vscode-resource scheme for local assets + data URIs.
+ *  - img-src — the vscode-resource scheme for local assets + data URIs + https:
+ *    (OmnigentApp may display remote avatars/thumbnails).
  *  - font-src — the vscode-resource scheme.
  *  - frame-src 'none' — Option B mounts OmnigentApp directly; no remote iframe.
- *  - worker-src 'none'.
+ *  - worker-src <cspSource> blob: — Monaco spawns workers from blob: URLs.
  *
  * IMPORTANT: `webviewCspSource` (vscode's allowlist for the extension's own
  * resources) must also be in relevant directives when the panel goes live; the
@@ -52,9 +54,10 @@ export function buildCsp(opts: BuildCspOptions): string {
   const { serverOrigin, wsOrigins, nonce, cspSource } = opts;
 
   // script-src: nonce only (+ cspSource for the extension's own bundled scripts)
-  const scriptSrc = cspSource
-    ? `'nonce-${nonce}' ${cspSource}`
-    : `'nonce-${nonce}'`;
+  // 'wasm-unsafe-eval' required by Monaco wasm runtime.
+  const scriptSrcParts = [`'nonce-${nonce}'`, `'wasm-unsafe-eval'`];
+  if (cspSource) scriptSrcParts.push(cspSource);
+  const scriptSrc = scriptSrcParts.join(" ");
 
   // style-src: nonce + unsafe-inline (OmnigentApp uses runtime CSS injection)
   const styleSrc = cspSource
@@ -70,11 +73,17 @@ export function buildCsp(opts: BuildCspOptions): string {
     .filter(Boolean)
     .join(" ");
 
-  // img-src / font-src: allow data URIs + vscode-resource scheme
+  // img-src / font-src: allow data URIs + vscode-resource scheme + https: for remote images
   const imgSrc = cspSource
-    ? `${cspSource} data:`
-    : `data:`;
+    ? `${cspSource} data: https:`
+    : `data: https:`;
   const fontSrc = cspSource ? cspSource : `'none'`;
+
+  // worker-src: Monaco spawns workers from blob: URLs; also needs cspSource for
+  // workers loaded from the extension's own media/ directory.
+  const workerSrc = cspSource
+    ? `${cspSource} blob:`
+    : `blob:`;
 
   const directives: string[] = [
     `default-src 'none'`,
@@ -84,7 +93,7 @@ export function buildCsp(opts: BuildCspOptions): string {
     `img-src ${imgSrc}`,
     `font-src ${fontSrc}`,
     `frame-src 'none'`,
-    `worker-src 'none'`,
+    `worker-src ${workerSrc}`,
   ];
 
   return directives.join("; ");
