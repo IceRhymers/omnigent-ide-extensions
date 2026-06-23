@@ -1,0 +1,95 @@
+{
+  "name": "omnigent-vscode",
+  "displayName": "Omnigent",
+  "description": "Omnigent in VS Code — embed the Omnigent SPA with native editor commands.",
+  "version": "0.1.0",
+  "publisher": "omnigent-ai",
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "configuration": {
+      "title": "Omnigent",
+      "properties": {
+        "omnigent.serverUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Manual Omnigent server URL override (e.g. `https://omnigent.example.com` or `http://127.0.0.1:6767`). When set, this takes precedence over local auto-discovery. Leave empty to auto-discover a locally running Omnigent server."
+        },
+        "omnigent.token": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional bearer token override. **Prefer the CLI token** stored in `~/.omnigent/auth_tokens.json` (auto-resolved) over setting a token here. When set, this takes precedence over the file token. Treat as a secret; it is never logged."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "omnigent-container",
+          "title": "Omnigent",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "omnigent-container": [
+        {
+          "type": "webview",
+          "id": "omnigent.panel",
+          "name": "Omnigent",
+          "when": "true"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "omnigent.openSession",
+        "title": "Omnigent: Open / Switch Session"
+      },
+      {
+        "command": "omnigent.sendSelection",
+        "title": "Omnigent: Send Selection to Agent"
+      },
+      {
+        "command": "omnigent.viewDiffs",
+        "title": "Omnigent: View Changed Files (Diffs)"
+      },
+      {
+        "command": "omnigent.applyDiffs",
+        "title": "Omnigent: Apply Changed Files"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "omnigent.sendSelection",
+          "when": "editorHasSelection",
+          "group": "omnigent@1"
+        }
+      ],
+      "commandPalette": [
+        { "command": "omnigent.openSession" },
+        { "command": "omnigent.sendSelection" },
+        { "command": "omnigent.viewDiffs" },
+        { "command": "omnigent.applyDiffs" }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "build:bootstrap": "node scripts/build-bootstrap.js",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

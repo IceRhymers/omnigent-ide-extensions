@@ -1,0 +1,55 @@
+# ── OS / editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+*.iml
+.vscode/            # local editor settings (the EXTENSION lives in vscode/, not this)
+
+# ── Node / VS Code extension (vscode/) ───────────────────────────────────────
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+*.vsix
+npm-debug.log*
+yarn-error.log*
+.eslintcache
+*.tsbuildinfo
+
+# Built bootstrap (generated from media/bootstrap/bootstrap.ts)
+vscode/media/bootstrap/bootstrap.js
+vscode/media/bootstrap/bootstrap.js.map
+
+# Vendored ap-web embed bundle — an external build input produced from the
+# pinned omnigent submodule (see vscode/scripts/build-apweb.md / `make build-apweb`).
+# Rebuilt, never committed; provenance is the submodule SHA in vscode/apweb-pin.json.
+vscode/media/apweb/
+
+# ── Gradle / IntelliJ plugin (intellij/) ─────────────────────────────────────
+.gradle/
+**/.gradle/
+build/
+**/build/
+!**/src/**/build/        # don't ignore any source dir literally named "build"
+
+# ── IntelliJ Platform Gradle plugin runtime ──────────────────────────────────
+.intellijPlatform/
+**/.intellijPlatform/
+
+# ── oh-my-claudecode runtime state (keep root specs/plans/autopilot design docs) ─
+.omc/state/
+.omc/logs/
+.omc/project-memory.json
+.omc/notepad.md
+# Stray nested .omc dirs (OMC writes .omc/ at the shell cwd; only the repo-root
+# .omc/ is intentional — these are leaked state from running tools inside a subdir)
+intellij/.omc/
+vscode/.omc/
+third_party/**/.omc/
+
+# ── misc ─────────────────────────────────────────────────────────────────────
+*.log
+.env
+.env.local

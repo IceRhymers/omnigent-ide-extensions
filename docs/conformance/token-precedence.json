@@ -1,0 +1,35 @@
+{
+  "description": "Language-neutral conformance vectors for token precedence. Order: (1) a manual token from the extension setting (omnigent.token) ALWAYS wins when non-empty; (2) otherwise a matching bearer record from auth_tokens.json; (3) otherwise, if a Databricks pointer record matched, the outcome is 'databricks-pointer' (caller must run databricks login); (4) otherwise 'none' (caller triggers CLI login / manual prompt). Output 'source' is one of: 'manual', 'file', 'databricks-pointer', 'none'. When a token resolves, 'token' is present.",
+  "cases": [
+    {
+      "name": "manual_wins_over_file",
+      "input": { "manualToken": "MANUAL_PLACEHOLDER", "fileResolution": { "kind": "bearer", "token": "FILE_PLACEHOLDER" } },
+      "expected": { "source": "manual", "token": "MANUAL_PLACEHOLDER" }
+    },
+    {
+      "name": "manual_wins_over_pointer",
+      "input": { "manualToken": "MANUAL_PLACEHOLDER", "fileResolution": { "kind": "databricks-pointer", "workspaceHost": "https://dbc-abc123.cloud.databricks.com" } },
+      "expected": { "source": "manual", "token": "MANUAL_PLACEHOLDER" }
+    },
+    {
+      "name": "empty_manual_falls_through_to_file",
+      "input": { "manualToken": "", "fileResolution": { "kind": "bearer", "token": "FILE_PLACEHOLDER" } },
+      "expected": { "source": "file", "token": "FILE_PLACEHOLDER" }
+    },
+    {
+      "name": "no_manual_uses_file",
+      "input": { "manualToken": null, "fileResolution": { "kind": "bearer", "token": "FILE_PLACEHOLDER" } },
+      "expected": { "source": "file", "token": "FILE_PLACEHOLDER" }
+    },
+    {
+      "name": "no_manual_pointer_record",
+      "input": { "manualToken": null, "fileResolution": { "kind": "databricks-pointer", "workspaceHost": "https://dbc-abc123.cloud.databricks.com" } },
+      "expected": { "source": "databricks-pointer", "workspaceHost": "https://dbc-abc123.cloud.databricks.com" }
+    },
+    {
+      "name": "nothing_available",
+      "input": { "manualToken": null, "fileResolution": { "kind": "none" } },
+      "expected": { "source": "none" }
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "description": "Language-neutral conformance vector for the long-lived-connection (SSE/WS) auth lifecycle state machine. The machine models what happens when an established long-lived connection fails authentication (e.g. token expiry) and must recover. States: 'connected', 'failed' (auth failure observed), 'refreshing' (attempting token refresh), 'reconnecting' (re-establishing transport with the new token), 'resumed' (back to a healthy connection), 'prompt-relogin' (refresh failed; surface actionable re-login/override). Each scenario is an ordered list of (event -> state) transitions driven by inputs. Implementations feed the events in order and assert the resulting state at each step. This gates the highest-risk cross-language behavior (not just parsing).",
+  "scenarios": [
+    {
+      "name": "expiry_then_refresh_succeeds_reconnect_resumes",
+      "initialState": "connected",
+      "transitions": [
+        { "event": { "type": "auth-failure", "code": 401 }, "expectedState": "failed" },
+        { "event": { "type": "begin-refresh" }, "expectedState": "refreshing" },
+        { "event": { "type": "refresh-result", "ok": true }, "expectedState": "reconnecting" },
+        { "event": { "type": "reconnect-result", "ok": true }, "expectedState": "resumed" }
+      ]
+    },
+    {
+      "name": "expiry_then_refresh_fails_prompts_relogin",
+      "initialState": "connected",
+      "transitions": [
+        { "event": { "type": "auth-failure", "code": 401 }, "expectedState": "failed" },
+        { "event": { "type": "begin-refresh" }, "expectedState": "refreshing" },
+        { "event": { "type": "refresh-result", "ok": false }, "expectedState": "prompt-relogin" }
+      ]
+    },
+    {
+      "name": "refresh_succeeds_but_reconnect_fails_prompts_relogin",
+      "initialState": "connected",
+      "transitions": [
+        { "event": { "type": "auth-failure", "code": 401 }, "expectedState": "failed" },
+        { "event": { "type": "begin-refresh" }, "expectedState": "refreshing" },
+        { "event": { "type": "refresh-result", "ok": true }, "expectedState": "reconnecting" },
+        { "event": { "type": "reconnect-result", "ok": false }, "expectedState": "prompt-relogin" }
+      ]
+    },
+    {
+      "name": "forbidden_close_goes_straight_to_prompt",
+      "initialState": "connected",
+      "transitions": [
+        { "event": { "type": "auth-failure", "code": 403 }, "expectedState": "prompt-relogin" }
+      ]
+    },
+    {
+      "name": "clean_teardown_on_panel_close",
+      "initialState": "connected",
+      "transitions": [
+        { "event": { "type": "teardown" }, "expectedState": "closed" }
+      ]
+    }
+  ]
+}

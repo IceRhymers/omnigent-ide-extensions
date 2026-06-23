@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.vsix
+.DS_Store
+# bundled ap-web artifact (external build input — see scripts/build-apweb.md)
+media/apweb/
+# bundled bootstrap (built artifact)
+media/bootstrap/bootstrap.js
+media/bootstrap/bootstrap.js.map

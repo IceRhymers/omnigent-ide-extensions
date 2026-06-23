@@ -1,0 +1,11 @@
+{
+  "description": "Language-neutral conformance vectors mapping a one-shot HTTP response status to an auth outcome. 401 (Unauthorized) => 'reauth' (token missing/expired/invalid; caller should attempt refresh/re-login then retry, or prompt). 403 (Forbidden) => 'forbidden' (authenticated but not permitted; caller should surface a forbidden message, NOT a re-login loop). Any 2xx => 'ok'. Other non-2xx => 'error'.",
+  "cases": [
+    { "name": "ok_200", "input": { "status": 200 }, "expected": { "outcome": "ok" } },
+    { "name": "ok_204", "input": { "status": 204 }, "expected": { "outcome": "ok" } },
+    { "name": "unauthorized_401", "input": { "status": 401 }, "expected": { "outcome": "reauth" } },
+    { "name": "forbidden_403", "input": { "status": 403 }, "expected": { "outcome": "forbidden" } },
+    { "name": "not_found_404", "input": { "status": 404 }, "expected": { "outcome": "error" } },
+    { "name": "server_error_500", "input": { "status": 500 }, "expected": { "outcome": "error" } }
+  ]
+}

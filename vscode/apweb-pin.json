@@ -1,0 +1,13 @@
+{
+  "_comment": "PLACEHOLDER (A6/C2). The bundled ap-web build SHA/version is load-bearing: the bundled UI version IS this artifact's behavior. To be populated when ap-web is bundled in A6. The embed leaves React/ReactDOM/react-router(-dom) as BARE externals (per .omc/autopilot/A6a-embed-contract-gate.md): the VS Code webview bootstrap MUST supply React 18 + react-router-dom 6.4.x and a Router around OmnigentApp. Pin those versions here alongside the ap-web build SHA.",
+  "apweb": {
+    "repo": "github.com/omnigent-ai/omnigent",
+    "buildSha": "TBD-A6",
+    "version": "TBD-A6"
+  },
+  "externals": {
+    "react": "18.x (TBD pin)",
+    "react-dom": "18.x (TBD pin)",
+    "react-router-dom": "6.4.x (TBD pin)"
+  }
+}

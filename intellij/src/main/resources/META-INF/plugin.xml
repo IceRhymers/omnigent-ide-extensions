@@ -1,0 +1,75 @@
+<!-- Omnigent IntelliJ/PyCharm plugin descriptor (B1).
+     version is stamped from the build (pluginConfiguration.version = project
+     version, default 0.1.0). sinceBuild=241 / open untilBuild come from the
+     build's ideaVersion block (gradle.properties). -->
+<idea-plugin>
+    <id>ai.omnigent.intellij</id>
+    <name>Omnigent</name>
+    <version>0.1.0</version>
+    <vendor email="support@omnigent.example" url="https://github.com/omnigent-ai/omnigent">Omnigent (vendor placeholder)</vendor>
+
+    <description><![CDATA[
+        Brings <b>Omnigent</b> into IntelliJ IDEA and PyCharm. Embeds the Omnigent
+        web UI in a JCEF tool window pointed at a configurable server target
+        (auto-discovered local server or a manual remote/Databricks URL), plus
+        native editor actions: send selection/file to the agent, open/switch a
+        session with a connection-status indicator, and view/apply changed-file
+        diffs in the native diff viewer.
+    ]]></description>
+
+    <!-- Target IDEA + PyCharm (Community + Professional). The platform module
+         is the common base shared by all IDEs; the JCEF tool window + the three
+         actions use only platform APIs so the single plugin loads in every
+         listed IDE without an IDE-specific module dependency. -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- B2: JCEF tool window (live-navigate to the resolved server URL). -->
+        <toolWindow
+            id="Omnigent"
+            anchor="right"
+            secondary="false"
+            icon="AllIcons.Toolwindows.WebToolWindow"
+            factoryClass="ai.omnigent.intellij.toolwindow.OmnigentToolWindowFactory"/>
+
+        <!-- Persisted settings (server URL + optional token override). -->
+        <applicationService
+            serviceImplementation="ai.omnigent.intellij.config.OmnigentSettings"/>
+    </extensions>
+
+    <actions>
+        <!-- B4: three native actions. -->
+        <action
+            id="ai.omnigent.intellij.SendSelection"
+            class="ai.omnigent.intellij.actions.SendSelectionAction"
+            text="Omnigent: Send Selection to Agent"
+            description="Send the current editor selection or file to the active Omnigent session.">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action
+            id="ai.omnigent.intellij.OpenSession"
+            class="ai.omnigent.intellij.actions.OpenSessionAction"
+            text="Omnigent: Open / Switch Session"
+            description="Open/focus the Omnigent tool window and create or resume a session.">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action
+            id="ai.omnigent.intellij.ViewDiffs"
+            class="ai.omnigent.intellij.actions.ViewDiffsAction"
+            text="Omnigent: View Changed Files (Diffs)"
+            description="View the session's changed files in the native diff viewer (view-only for all sessions).">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action
+            id="ai.omnigent.intellij.ApplyDiffs"
+            class="ai.omnigent.intellij.actions.ApplyDiffsAction"
+            text="Omnigent: Apply Changed Files"
+            description="Apply the session's changed files to the workspace (local sessions only).">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

@@ -1,0 +1,36 @@
+{
+  "description": "Language-neutral conformance vectors for interpreting a GET {base}/health probe result. The probe has a short timeout (see docs/discovery-auth.md; default 2000ms). Input is the abstract observation of the probe (so the logic is testable without real network IO): 'status' (HTTP status, omitted on timeout/network failure), 'body' (parsed JSON body when available), and 'timedOut'/'networkError' flags. Output 'outcome' is one of: 'ok' (HTTP 200 AND body.status === 'ok'), 'unhealthy' (responded but not 200, or 200 without status:ok), 'timeout' (probe exceeded the deadline), 'unreachable' (connection refused / network error).",
+  "timeoutMs": 2000,
+  "cases": [
+    {
+      "name": "healthy_200_status_ok",
+      "input": { "status": 200, "body": { "status": "ok" } },
+      "expected": { "outcome": "ok" }
+    },
+    {
+      "name": "200_but_body_not_ok",
+      "input": { "status": 200, "body": { "status": "degraded" } },
+      "expected": { "outcome": "unhealthy" }
+    },
+    {
+      "name": "200_but_no_body",
+      "input": { "status": 200, "body": null },
+      "expected": { "outcome": "unhealthy" }
+    },
+    {
+      "name": "non_200_response",
+      "input": { "status": 503, "body": { "status": "starting" } },
+      "expected": { "outcome": "unhealthy" }
+    },
+    {
+      "name": "probe_timed_out",
+      "input": { "timedOut": true },
+      "expected": { "outcome": "timeout" }
+    },
+    {
+      "name": "connection_refused",
+      "input": { "networkError": true },
+      "expected": { "outcome": "unreachable" }
+    }
+  ]
+}

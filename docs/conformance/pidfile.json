@@ -1,0 +1,55 @@
+{
+  "description": "Language-neutral conformance vectors for parsing ~/.omnigent/local_server.pid. The pidfile format is two lines: line 1 = PID (integer), line 2 = port (integer). Implementations parse the raw file content into a structured result. 'pidAlive' is supplied as an external observation (result of an OS liveness check such as `kill(pid, 0)` / signal-0 probe) so the parse logic remains pure and testable without spawning processes. Field meanings: status='ok' means a usable PID+port pair was parsed AND the PID is alive; 'malformed' means the content could not be parsed into PID+port; 'dead' means parsed but the PID is not alive (or liveness could not be confirmed). When status='ok', 'baseUrl' is the derived local probe target.",
+  "cases": [
+    {
+      "name": "valid_pid_and_port_alive",
+      "input": { "content": "12345\n6767\n", "pidAlive": true },
+      "expected": { "status": "ok", "pid": 12345, "port": 6767, "baseUrl": "http://127.0.0.1:6767" }
+    },
+    {
+      "name": "valid_pid_and_port_no_trailing_newline_alive",
+      "input": { "content": "999\n6800", "pidAlive": true },
+      "expected": { "status": "ok", "pid": 999, "port": 6800, "baseUrl": "http://127.0.0.1:6800" }
+    },
+    {
+      "name": "valid_with_surrounding_whitespace_alive",
+      "input": { "content": "  12345  \n  6767  \n", "pidAlive": true },
+      "expected": { "status": "ok", "pid": 12345, "port": 6767, "baseUrl": "http://127.0.0.1:6767" }
+    },
+    {
+      "name": "dead_pid_parsed_but_not_alive",
+      "input": { "content": "12345\n6767\n", "pidAlive": false },
+      "expected": { "status": "dead", "pid": 12345, "port": 6767 }
+    },
+    {
+      "name": "port_only_single_line_malformed",
+      "input": { "content": "6767\n", "pidAlive": true },
+      "expected": { "status": "malformed", "reason": "expected two lines (pid then port)" }
+    },
+    {
+      "name": "empty_file_malformed",
+      "input": { "content": "", "pidAlive": true },
+      "expected": { "status": "malformed", "reason": "expected two lines (pid then port)" }
+    },
+    {
+      "name": "non_numeric_pid_malformed",
+      "input": { "content": "abc\n6767\n", "pidAlive": true },
+      "expected": { "status": "malformed", "reason": "pid is not an integer" }
+    },
+    {
+      "name": "non_numeric_port_malformed",
+      "input": { "content": "12345\nxyz\n", "pidAlive": true },
+      "expected": { "status": "malformed", "reason": "port is not an integer" }
+    },
+    {
+      "name": "port_out_of_range_malformed",
+      "input": { "content": "12345\n70000\n", "pidAlive": true },
+      "expected": { "status": "malformed", "reason": "port out of range" }
+    },
+    {
+      "name": "zero_pid_malformed",
+      "input": { "content": "0\n6767\n", "pidAlive": true },
+      "expected": { "status": "malformed", "reason": "pid is not a positive integer" }
+    }
+  ]
+}
