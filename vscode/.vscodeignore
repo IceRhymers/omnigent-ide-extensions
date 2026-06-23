@@ -1,0 +1,27 @@
+# Controls what goes INTO the .vsix. The runtime is the esbuild bundle
+# (dist/extension.js) + the webview assets under media/. Everything else is
+# dev-only and excluded.
+
+# TypeScript sources (only the built .js is needed at runtime)
+src/**
+**/*.ts
+!media/**/*.d.ts
+
+# Dev tooling / config
+scripts/**
+esbuild.js
+tsconfig.json
+vitest.config.ts
+**/*.test.*
+**/__mocks__/**
+.gitignore
+.vscodeignore
+
+# Dependencies are bundled into dist/ by esbuild — not needed in the package
+node_modules/**
+
+# Source maps (drop to keep the package smaller)
+**/*.map
+
+# Keep: dist/**, media/** (apweb embed + vendor + bootstrap.js), package.json,
+# README.md, apweb-pin.json, media/icon.svg
