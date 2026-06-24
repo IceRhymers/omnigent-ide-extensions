@@ -120,7 +120,7 @@ describe("SessionsTreeProvider state nodes", () => {
 });
 
 describe("SessionsTreeProvider truncation", () => {
-  it("appends a 'Showing first N' node when the cap is reached", async () => {
+  it("appends a 'Showing first N' node when the cap is reached with has_more true", async () => {
     // cap is 200 in the provider; build 200 sessions with has_more true on the page.
     const data = Array.from({ length: 200 }, (_, i) => ({
       id: `conv_${i}`,
@@ -133,6 +133,22 @@ describe("SessionsTreeProvider truncation", () => {
     const last = nodes[nodes.length - 1];
     expect(last.kind).toBe("message");
     expect(last.kind === "message" && last.label).toBe("Showing first 200");
+  });
+
+  it("does NOT append the footer at exactly the cap when has_more is false", async () => {
+    // Boundary delta from the canonical `truncated` definition: exactly 200
+    // sessions with has_more:false is NOT truncated (old `size >= CAP` would
+    // have flagged it). No "Showing first N" footer must appear.
+    const data = Array.from({ length: 200 }, (_, i) => ({
+      id: `conv_${i}`,
+      updated_at: 1000 - i,
+    }));
+    const opts = clientWith([{ status: 200, body: page(data, { has_more: false, last_id: "conv_199" }) }]);
+    const p = new SessionsTreeProvider(() => opts, output);
+    await p.refresh();
+    const nodes = p.getChildren();
+    expect(nodes).toHaveLength(200);
+    expect(nodes.every((n) => n.kind === "session")).toBe(true);
   });
 });
 

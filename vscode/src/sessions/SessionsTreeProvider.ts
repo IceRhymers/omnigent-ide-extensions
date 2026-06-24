@@ -7,7 +7,7 @@
 import * as vscode from "vscode";
 import { listSessions, type ClientOptions, type Session } from "../api/client";
 import { defaultFilter, isFilterActive, matchesFilter, type SessionFilter } from "./filter";
-import { sortSessions, toItemView } from "./treeItem";
+import { computeSignature, sortSessions, toItemView } from "./treeItem";
 
 export const SESSIONS_VIEW_ID = "omnigent.sessions";
 
@@ -49,7 +49,7 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<SessionsNod
     const quiet = options?.quiet === true;
     const opts = this.getClientOpts();
     if (!opts) {
-      this.applyResult("no-server", [], quiet);
+      this.applyResult("no-server", [], false, quiet);
       return;
     }
 
@@ -61,27 +61,32 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<SessionsNod
     const res = await listSessions(opts, SESSIONS_CAP);
     if (!res.ok || !res.data) {
       if (res.status === 401 || res.status === 403) {
-        this.applyResult("unauthorized", [], quiet);
+        this.applyResult("unauthorized", [], false, quiet);
       } else {
         this.output.appendLine(
           `[omnigent] sessions: list failed (${res.status}: ${res.error ?? "unknown"})`,
         );
-        this.applyResult("error", [], quiet);
+        this.applyResult("error", [], false, quiet);
       }
     } else {
-      this.applyResult("ready", res.data, quiet);
+      this.applyResult("ready", res.data.sessions, res.data.truncated, quiet);
     }
   }
 
   /** Commit a fetch result; fire a change unless `quiet` and nothing changed. */
-  private applyResult(state: SessionsState, sessions: Session[], quiet: boolean): void {
+  private applyResult(
+    state: SessionsState,
+    sessions: Session[],
+    truncated: boolean,
+    quiet: boolean,
+  ): void {
     this.state = state;
     this.sessions = sessions;
-    // Truncation is reported when the accumulated total reached the cap.
-    this.truncated = sessions.length >= SESSIONS_CAP;
-    const signature = `${state}|${sessions
-      .map((s) => `${s.id}:${s.updated_at ?? ""}:${s.status ?? ""}`)
-      .join(",")}`;
+    // Truncation is the canonical flag from `listSessions`/`accumulateSessions`
+    // (has_more on the last page AND the cap was reached) — NOT a UI-side
+    // `length >= cap` recompute.
+    this.truncated = truncated;
+    const signature = computeSignature(state, sessions);
     if (quiet && signature === this.lastSignature) return;
     this.lastSignature = signature;
     this._onDidChangeTreeData.fire();

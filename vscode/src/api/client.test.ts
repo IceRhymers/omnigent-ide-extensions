@@ -236,17 +236,30 @@ describe("listSessions", () => {
     ]);
     const res = await listSessions(opts);
     expect(res.ok).toBe(true);
-    expect(res.data?.map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect(res.data?.sessions.map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect(res.data?.truncated).toBe(false);
     expect(calls).toHaveLength(2);
     expect(calls[1].url).toContain("after=b");
   });
 
-  it("stops at the cap without following further pages", async () => {
+  it("stops at the cap without following further pages and reports truncated", async () => {
     const { opts, calls } = sequenceFetch([
       { status: 200, body: page([{ id: "a" }, { id: "b" }], { has_more: true, last_id: "b" }) },
     ]);
     const res = await listSessions(opts, 2);
-    expect(res.data?.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(res.data?.sessions.map((s) => s.id)).toEqual(["a", "b"]);
+    // has_more && size === cap -> truncated
+    expect(res.data?.truncated).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("is NOT truncated at exactly the cap when the last page has has_more false", async () => {
+    const { opts, calls } = sequenceFetch([
+      { status: 200, body: page([{ id: "a" }, { id: "b" }], { has_more: false, last_id: "b" }) },
+    ]);
+    const res = await listSessions(opts, 2);
+    expect(res.data?.sessions.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(res.data?.truncated).toBe(false);
     expect(calls).toHaveLength(1);
   });
 
@@ -294,7 +307,7 @@ describe("pinned Session parsing", () => {
       { status: 200, body: page([session], { has_more: false }) },
     ]);
     const res = await listSessions(opts);
-    const got = res.data?.[0];
+    const got = res.data?.sessions[0];
     expect(got?.archived).toBe(true);
     expect(got?.title).toBe("Fix the bug");
     expect(got?.workspace).toBe("/abs/path");
@@ -307,7 +320,7 @@ describe("pinned Session parsing", () => {
       { status: 200, body: page([{ id: "conv_2" }], { has_more: false }) },
     ]);
     const res = await listSessions(opts);
-    const got = res.data?.[0];
+    const got = res.data?.sessions[0];
     expect(got?.id).toBe("conv_2");
     expect(got?.title).toBeUndefined();
     expect(got?.archived).toBeUndefined();

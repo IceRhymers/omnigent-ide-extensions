@@ -1,0 +1,358 @@
+{
+  "description": "Language-neutral conformance vectors for the PORTABLE Sessions-picker contracts shared by the VS Code (vscode/src/sessions/filter.ts + treeItem.ts) and IntelliJ (intellij/.../sessions/) implementations. Each case has an 'fn' selecting the function under test. Deliberately EXCLUDED (platform-conditional / deliberately divergent, tested language-locally): normalizeWorkspacePath path-CASING and statusIcon/themeIcon mapping. The case-sensitive workspace-equality branch of matchesFilter is exercised here with ALREADY-NORMALIZED, all-lowercase inputs so the expected result is correct on every platform. Sessions use the wire JSON field names (agent_name, git_branch, updated_at, status, workspace, title, archived); the SessionFilter object uses workspacePath/gitBranch/agentName/status/titleQuery/hideArchived/currentFolderOnly. relativeTime cases pass unixSecs + nowMs (ms) directly.",
+  "cases": [
+    {
+      "name": "matchesFilter/hideArchived_drops_literal_true",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "archived": true },
+        "filter": { "hideArchived": true, "currentFolderOnly": false }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "matchesFilter/hideArchived_keeps_false",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "archived": false },
+        "filter": { "hideArchived": true, "currentFolderOnly": false }
+      },
+      "expected": { "matches": true }
+    },
+    {
+      "name": "matchesFilter/hideArchived_keeps_absent",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1" },
+        "filter": { "hideArchived": true, "currentFolderOnly": false }
+      },
+      "expected": { "matches": true }
+    },
+    {
+      "name": "matchesFilter/archived_true_kept_when_hideArchived_off",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "archived": true },
+        "filter": { "hideArchived": false, "currentFolderOnly": false }
+      },
+      "expected": { "matches": true }
+    },
+    {
+      "name": "matchesFilter/workspace_active_currentFolderOnly_but_path_null_excludes",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "workspace": "/repo/app" },
+        "filter": { "hideArchived": false, "currentFolderOnly": true }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "matchesFilter/workspace_active_session_workspace_null_excludes",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "workspacePath": "/repo/app" }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "matchesFilter/workspace_normalized_equality_match",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "workspace": "/repo/app" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "workspacePath": "/repo/app/" }
+      },
+      "expected": { "matches": true }
+    },
+    {
+      "name": "matchesFilter/workspace_normalized_equality_mismatch",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "workspace": "/repo/app" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "workspacePath": "/repo/other" }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "matchesFilter/gitBranch_strict_equality_match",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "git_branch": "main" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "gitBranch": "main" }
+      },
+      "expected": { "matches": true }
+    },
+    {
+      "name": "matchesFilter/gitBranch_case_sensitive_mismatch",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "git_branch": "Main" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "gitBranch": "main" }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "matchesFilter/gitBranch_set_vs_absent_session_field_mismatch",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "gitBranch": "main" }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "matchesFilter/agentName_strict_equality_match",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "agent_name": "coder" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "agentName": "coder" }
+      },
+      "expected": { "matches": true }
+    },
+    {
+      "name": "matchesFilter/agentName_mismatch",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "agent_name": "coder" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "agentName": "other" }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "matchesFilter/status_strict_equality_match",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "status": "running" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "status": "running" }
+      },
+      "expected": { "matches": true }
+    },
+    {
+      "name": "matchesFilter/status_mismatch",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "status": "idle" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "status": "running" }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "matchesFilter/titleQuery_case_insensitive_substring_match",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "title": "Fix the Bug" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "titleQuery": "bug" }
+      },
+      "expected": { "matches": true }
+    },
+    {
+      "name": "matchesFilter/titleQuery_no_match",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "title": "Fix the Bug" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "titleQuery": "feature" }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "matchesFilter/titleQuery_against_absent_title_no_match",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "titleQuery": "x" }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "matchesFilter/titleQuery_blank_is_inactive_dimension",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "title": "anything" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "titleQuery": "   " }
+      },
+      "expected": { "matches": true }
+    },
+    {
+      "name": "matchesFilter/titleQuery_untrimmed_query_lowercased_substring",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "title": "abcBUGdef" },
+        "filter": { "hideArchived": false, "currentFolderOnly": false, "titleQuery": " bug " }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "matchesFilter/AND_combines_all_dimensions_match",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "agent_name": "coder", "status": "running", "title": "Deploy step" },
+        "filter": { "hideArchived": true, "currentFolderOnly": false, "agentName": "coder", "status": "running", "titleQuery": "deploy" }
+      },
+      "expected": { "matches": true }
+    },
+    {
+      "name": "matchesFilter/AND_one_mismatch_fails_whole_filter",
+      "fn": "matchesFilter",
+      "input": {
+        "session": { "id": "conv_1", "agent_name": "coder", "status": "idle", "title": "Deploy step" },
+        "filter": { "hideArchived": true, "currentFolderOnly": false, "agentName": "coder", "status": "running", "titleQuery": "deploy" }
+      },
+      "expected": { "matches": false }
+    },
+    {
+      "name": "isFilterActive/default_is_inactive",
+      "fn": "isFilterActive",
+      "input": { "filter": { "hideArchived": true, "currentFolderOnly": false } },
+      "expected": { "active": false }
+    },
+    {
+      "name": "isFilterActive/hideArchived_off_is_active",
+      "fn": "isFilterActive",
+      "input": { "filter": { "hideArchived": false, "currentFolderOnly": false } },
+      "expected": { "active": true }
+    },
+    {
+      "name": "isFilterActive/currentFolderOnly_on_is_active",
+      "fn": "isFilterActive",
+      "input": { "filter": { "hideArchived": true, "currentFolderOnly": true } },
+      "expected": { "active": true }
+    },
+    {
+      "name": "isFilterActive/agentName_set_is_active",
+      "fn": "isFilterActive",
+      "input": { "filter": { "hideArchived": true, "currentFolderOnly": false, "agentName": "x" } },
+      "expected": { "active": true }
+    },
+    {
+      "name": "isFilterActive/titleQuery_set_is_active",
+      "fn": "isFilterActive",
+      "input": { "filter": { "hideArchived": true, "currentFolderOnly": false, "titleQuery": "x" } },
+      "expected": { "active": true }
+    },
+    {
+      "name": "isFilterActive/empty_titleQuery_is_inactive",
+      "fn": "isFilterActive",
+      "input": { "filter": { "hideArchived": true, "currentFolderOnly": false, "titleQuery": "" } },
+      "expected": { "active": false }
+    },
+    {
+      "name": "isFilterActive/blank_titleQuery_is_inactive",
+      "fn": "isFilterActive",
+      "input": { "filter": { "hideArchived": true, "currentFolderOnly": false, "titleQuery": "  " } },
+      "expected": { "active": false }
+    },
+    {
+      "name": "sortSessions/desc_by_updated_at_with_id_tiebreak",
+      "fn": "sortSessions",
+      "input": {
+        "sessions": [
+          { "id": "b", "updated_at": 100 },
+          { "id": "a", "updated_at": 200 },
+          { "id": "c", "updated_at": 100 }
+        ]
+      },
+      "expected": { "order": ["a", "b", "c"] }
+    },
+    {
+      "name": "sortSessions/missing_updated_at_treated_as_zero_sorts_last",
+      "fn": "sortSessions",
+      "input": {
+        "sessions": [
+          { "id": "x" },
+          { "id": "y", "updated_at": 5 }
+        ]
+      },
+      "expected": { "order": ["y", "x"] }
+    },
+    {
+      "name": "sortSessions/id_tiebreak_lexicographic",
+      "fn": "sortSessions",
+      "input": {
+        "sessions": [
+          { "id": "conv_z", "updated_at": 10 },
+          { "id": "conv_a", "updated_at": 10 },
+          { "id": "conv_m", "updated_at": 10 }
+        ]
+      },
+      "expected": { "order": ["conv_a", "conv_m", "conv_z"] }
+    },
+    {
+      "name": "computeSignature/fetched_order_with_state",
+      "fn": "computeSignature",
+      "input": {
+        "state": "ready",
+        "sessions": [
+          { "id": "b", "updated_at": 200, "status": "running" },
+          { "id": "a", "updated_at": 100, "status": "idle" }
+        ]
+      },
+      "expected": { "signature": "ready|b:200:running,a:100:idle" }
+    },
+    {
+      "name": "computeSignature/absent_updated_at_and_status_render_empty",
+      "fn": "computeSignature",
+      "input": {
+        "state": "ready",
+        "sessions": [
+          { "id": "a" },
+          { "id": "b", "updated_at": 50 }
+        ]
+      },
+      "expected": { "signature": "ready|a::,b:50:" }
+    },
+    {
+      "name": "computeSignature/empty_list",
+      "fn": "computeSignature",
+      "input": { "state": "loading", "sessions": [] },
+      "expected": { "signature": "loading|" }
+    },
+    {
+      "name": "relativeTime/under_a_minute_is_just_now",
+      "fn": "relativeTime",
+      "input": { "unixSecs": 1699999970, "nowMs": 1700000000000 },
+      "expected": { "text": "just now" }
+    },
+    {
+      "name": "relativeTime/exactly_60s_is_1m",
+      "fn": "relativeTime",
+      "input": { "unixSecs": 1699999940, "nowMs": 1700000000000 },
+      "expected": { "text": "1m ago" }
+    },
+    {
+      "name": "relativeTime/59m_boundary",
+      "fn": "relativeTime",
+      "input": { "unixSecs": 1699996460, "nowMs": 1700000000000 },
+      "expected": { "text": "59m ago" }
+    },
+    {
+      "name": "relativeTime/exactly_60m_is_1h",
+      "fn": "relativeTime",
+      "input": { "unixSecs": 1699996400, "nowMs": 1700000000000 },
+      "expected": { "text": "1h ago" }
+    },
+    {
+      "name": "relativeTime/23h_boundary",
+      "fn": "relativeTime",
+      "input": { "unixSecs": 1699917200, "nowMs": 1700000000000 },
+      "expected": { "text": "23h ago" }
+    },
+    {
+      "name": "relativeTime/exactly_24h_is_1d",
+      "fn": "relativeTime",
+      "input": { "unixSecs": 1699913600, "nowMs": 1700000000000 },
+      "expected": { "text": "1d ago" }
+    },
+    {
+      "name": "relativeTime/5d",
+      "fn": "relativeTime",
+      "input": { "unixSecs": 1699568000, "nowMs": 1700000000000 },
+      "expected": { "text": "5d ago" }
+    },
+    {
+      "name": "relativeTime/future_clamps_to_just_now",
+      "fn": "relativeTime",
+      "input": { "unixSecs": 1700000100, "nowMs": 1700000000000 },
+      "expected": { "text": "just now" }
+    }
+  ]
+}
