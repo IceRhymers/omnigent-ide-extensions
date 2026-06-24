@@ -32,9 +32,36 @@
             icon="/icons/omnigent.svg"
             factoryClass="ai.omnigent.intellij.toolwindow.OmnigentToolWindowFactory"/>
 
+        <!-- Phase 3: dedicated, LEFT-anchored Sessions list tool window (Option D).
+             A SEPARATE window from the right-anchored Omnigent JCEF window so the
+             list and the conversation stay concurrently visible. Distinct icon. -->
+        <toolWindow
+            id="OmnigentSessions"
+            anchor="left"
+            secondary="false"
+            icon="/icons/omnigent-sessions.svg"
+            factoryClass="ai.omnigent.intellij.sessions.SessionsToolWindowFactory"/>
+
         <!-- Persisted settings (server URL + optional token override). -->
         <applicationService
             serviceImplementation="ai.omnigent.intellij.config.OmnigentSettings"/>
+
+        <!-- Phase 5: Settings → Tools → Omnigent (BoundConfigurable, APP-level). -->
+        <applicationConfigurable
+            parentId="tools"
+            id="ai.omnigent.intellij.config.OmnigentConfigurable"
+            instance="ai.omnigent.intellij.config.OmnigentConfigurable"
+            displayName="Omnigent"/>
+
+        <!-- Phase 5: the single canonical status surface (status-bar widget).
+             Anchored after the editor read-only widget on the status bar. -->
+        <statusBarWidgetFactory
+            id="ai.omnigent.intellij.StatusBarWidget"
+            implementation="ai.omnigent.intellij.statusbar.OmnigentStatusBarWidgetFactory"
+            order="after readOnlyWidget"/>
+
+        <!-- Notification group for the Sessions click-to-open no-op feedback. -->
+        <notificationGroup id="Omnigent" displayType="BALLOON"/>
     </extensions>
 
     <actions>
@@ -54,6 +81,10 @@
             text="Omnigent: Open / Switch Session"
             description="Open/focus the Omnigent tool window and create or resume a session.">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <!-- Phase 5 default keybindings: a free "O then S" chord under the
+                 Omnigent mnemonic (Ctrl+Alt+O on $default, Meta+Alt+O on macOS). -->
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt O" second-keystroke="S"/>
+            <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta alt O" second-keystroke="S"/>
         </action>
 
         <action
@@ -71,5 +102,40 @@
             description="Apply the session's changed files to the workspace (local sessions only).">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+
+        <!-- Phase 3: Sessions tool-window toolbar actions. The toolbar group is
+             built in code (SessionsPanel) from these registered actions. -->
+        <action
+            id="ai.omnigent.intellij.sessions.Refresh"
+            class="ai.omnigent.intellij.sessions.actions.RefreshSessionsAction"
+            text="Omnigent: Refresh Sessions"
+            description="Reload the Omnigent session list.">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <!-- "O then R" chord, sharing the Omnigent mnemonic prefix. -->
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt O" second-keystroke="R"/>
+            <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta alt O" second-keystroke="R"/>
+        </action>
+        <action
+            id="ai.omnigent.intellij.sessions.Filter"
+            class="ai.omnigent.intellij.sessions.actions.FilterSessionsAction"
+            text="Filter Sessions…"
+            description="Filter sessions by agent, status, branch, title, or folder."/>
+        <action
+            id="ai.omnigent.intellij.sessions.ToggleArchived"
+            class="ai.omnigent.intellij.sessions.actions.ToggleArchivedAction"
+            text="Toggle Archived Sessions"
+            description="Show or hide archived sessions."/>
+        <action
+            id="ai.omnigent.intellij.sessions.ClearFilters"
+            class="ai.omnigent.intellij.sessions.actions.ClearFiltersAction"
+            text="Clear Session Filters"
+            description="Reset all session filters to the default."/>
+
+        <group id="ai.omnigent.intellij.sessions.Toolbar">
+            <reference ref="ai.omnigent.intellij.sessions.Refresh"/>
+            <reference ref="ai.omnigent.intellij.sessions.Filter"/>
+            <reference ref="ai.omnigent.intellij.sessions.ToggleArchived"/>
+            <reference ref="ai.omnigent.intellij.sessions.ClearFilters"/>
+        </group>
     </actions>
 </idea-plugin>

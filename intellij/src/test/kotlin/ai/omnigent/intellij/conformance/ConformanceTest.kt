@@ -14,6 +14,13 @@ import ai.omnigent.intellij.discovery.HealthObservation
 import ai.omnigent.intellij.discovery.HealthOutcome
 import ai.omnigent.intellij.discovery.Pidfile
 import ai.omnigent.intellij.discovery.PidfileResult
+import ai.omnigent.intellij.api.Session
+import ai.omnigent.intellij.sessions.SessionFilter
+import ai.omnigent.intellij.sessions.computeSignature
+import ai.omnigent.intellij.sessions.isFilterActive
+import ai.omnigent.intellij.sessions.matchesFilter
+import ai.omnigent.intellij.sessions.relativeTime
+import ai.omnigent.intellij.sessions.sortSessions
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.booleanOrNull
@@ -275,4 +282,79 @@ class ConformanceTest {
         "teardown" -> LifecycleEvent.Teardown
         else -> error("unknown event")
     }
+
+    // ── session-filter.json ────────────────────────────────────────────────────
+    // The shared portable Sessions-picker contracts: matchesFilter / isFilterActive /
+    // sortSessions / computeSignature / relativeTime bucket boundaries. Path-CASING
+    // and icon mapping are EXCLUDED (platform-conditional / divergent) and tested
+    // language-locally in SessionsViewTest.
+    @TestFactory
+    fun sessionFilter(): List<DynamicTest> {
+        val vec = Vectors.load("session-filter.json")
+        return vec["cases"]!!.jsonArray.map { caseEl ->
+            val case = caseEl.jsonObject
+            val name = case.str("name")!!
+            val fn = case.str("fn")!!
+            DynamicTest.dynamicTest("session-filter/$name") {
+                val input = case["input"]!!.jsonObject
+                val expected = case["expected"]!!.jsonObject
+                when (fn) {
+                    "matchesFilter" -> {
+                        val s = parseSession(input["session"]!!.jsonObject)
+                        val f = parseFilter(input["filter"]!!.jsonObject)
+                        assertEquals(expected.boolOrNull("matches"), matchesFilter(s, f))
+                    }
+                    "isFilterActive" -> {
+                        val f = parseFilter(input["filter"]!!.jsonObject)
+                        assertEquals(expected.boolOrNull("active"), isFilterActive(f))
+                    }
+                    "sortSessions" -> {
+                        val sessions = input["sessions"]!!.jsonArray.map { parseSession(it.jsonObject) }
+                        val order = sortSessions(sessions).map { it.id }
+                        val expectedOrder = expected["order"]!!.jsonArray.map { it.jsonPrimitive.content }
+                        assertEquals(expectedOrder, order)
+                    }
+                    "computeSignature" -> {
+                        val state = input.str("state")!!
+                        val sessions = input["sessions"]!!.jsonArray.map { parseSession(it.jsonObject) }
+                        assertEquals(expected.str("signature"), computeSignature(state, sessions))
+                    }
+                    "relativeTime" -> {
+                        val unixSecs = input.longOrNull("unixSecs")!!
+                        val nowMs = input.longOrNull("nowMs")!!
+                        assertEquals(expected.str("text"), relativeTime(unixSecs, nowMs))
+                    }
+                    else -> error("unknown fn $fn")
+                }
+            }
+        }
+    }
+
+    private fun JsonObject.boolOrNull(key: String): Boolean? =
+        this[key]?.jsonPrimitive?.content?.toBooleanStrictOrNull()
+
+    /** Parse a wire-shaped session object (agent_name / git_branch / updated_at …). */
+    private fun parseSession(obj: JsonObject): Session = Session(
+        id = obj.str("id")!!,
+        agentId = obj.str("agent_id"),
+        agentName = obj.str("agent_name"),
+        status = obj.str("status"),
+        createdAt = obj.longOrNull("created_at"),
+        updatedAt = obj.longOrNull("updated_at"),
+        title = obj.str("title"),
+        workspace = obj.str("workspace"),
+        gitBranch = obj.str("git_branch"),
+        archived = obj.boolOrNull("archived"),
+    )
+
+    /** Parse a SessionFilter object (camelCase keys). */
+    private fun parseFilter(obj: JsonObject): SessionFilter = SessionFilter(
+        hideArchived = obj.boolOrNull("hideArchived")!!,
+        currentFolderOnly = obj.boolOrNull("currentFolderOnly")!!,
+        workspacePath = obj.str("workspacePath"),
+        gitBranch = obj.str("gitBranch"),
+        agentName = obj.str("agentName"),
+        status = obj.str("status"),
+        titleQuery = obj.str("titleQuery"),
+    )
 }

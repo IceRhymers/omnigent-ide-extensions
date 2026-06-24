@@ -244,6 +244,72 @@ class OmnigentApiClient(
         else ApiResponse(false, resp.status, null, resp.error)
     }
 
+    /**
+     * Fetch a single page of sessions. `limit`/`after` are appended as query
+     * params only when non-null (mirrors the TS listSessionsPage).
+     */
+    fun listSessionsPage(opts: ListSessionsOptions = ListSessionsOptions()): ApiResponse<SessionsPage> {
+        val params = mutableListOf<String>()
+        opts.limit?.let { params.add("limit=${URLEncoder.encode(it.toString(), StandardCharsets.UTF_8)}") }
+        opts.after?.let { params.add("after=${URLEncoder.encode(it, StandardCharsets.UTF_8)}") }
+        val query = if (params.isEmpty()) "" else "?" + params.joinToString("&")
+        val resp = execute(requestBuilder("/v1/sessions$query").GET())
+        return if (resp.ok) ApiResponse(true, resp.status, parseSessionsPage(resp.data ?: ""))
+        else ApiResponse(false, resp.status, null, resp.error)
+    }
+
+    /**
+     * List sessions, following the `after = last_id` cursor while `has_more` is
+     * true and the accumulated total is below [cap]. Non-ok pages (esp. 401/403)
+     * propagate as-is without throwing so callers can map them to the
+     * unauthorized/error states.
+     *
+     * The cap loop replicates the three TS stop conditions in order (client.ts:217):
+     * break when (1) `hasMore != true`, OR (2) the next cursor (`lastId`) is
+     * null/blank, OR (3) `total >= cap`; otherwise set `after = lastId` and continue.
+     *
+     * `truncated` follows the `accumulateSessions` semantics (client.ts:166-181):
+     * `lastHasMore && sessions.size >= cap`, where `lastHasMore` is the `has_more`
+     * of the LAST consumed page and `sessions.size` is the accumulated capped total.
+     *
+     * [fetchPage] is injectable for testing the loop without real HTTP.
+     */
+    fun listSessions(
+        cap: Int = 200,
+        fetchPage: (after: String?) -> ApiResponse<SessionsPage> = { after ->
+            listSessionsPage(ListSessionsOptions(after = after))
+        },
+    ): ApiResponse<SessionsResult> {
+        val pages = mutableListOf<SessionsPage>()
+        var after: String? = null
+        var lastStatus = 200
+        while (true) {
+            val res = fetchPage(after)
+            if (!res.ok || res.data == null) {
+                return ApiResponse(res.ok, res.status, null, res.error)
+            }
+            lastStatus = res.status
+            pages.add(res.data)
+            val total = pages.sumOf { it.data.size }
+            val next = res.data.lastId
+            if (res.data.hasMore != true || next.isNullOrBlank() || total >= cap) break
+            after = next
+        }
+
+        val sessions = mutableListOf<Session>()
+        var lastHasMore = false
+        for (page in pages) {
+            lastHasMore = page.hasMore == true
+            for (s in page.data) {
+                if (sessions.size >= cap) break
+                sessions.add(s)
+            }
+            if (sessions.size >= cap) break
+        }
+        val truncated = lastHasMore && sessions.size >= cap
+        return ApiResponse(true, lastStatus, SessionsResult(sessions.toList(), truncated))
+    }
+
     fun fetchDiff(sessionId: String, environmentId: String, relativePath: String): ApiResponse<DiffResult> {
         val encoded = OmnigentPayloads.encodePath(relativePath)
         val resp = execute(
