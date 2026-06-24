@@ -1,0 +1,168 @@
+{
+  "name": "omnigent-vscode",
+  "displayName": "Omnigent",
+  "description": "Omnigent in VS Code — embed the Omnigent SPA with native editor commands.",
+  "version": "0.1.0",
+  "publisher": "omnigent-ai",
+  "license": "SEE LICENSE IN LICENSE",
+  "icon": "media/omnigent-icon.png",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "configuration": {
+      "title": "Omnigent",
+      "properties": {
+        "omnigent.serverUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Manual Omnigent server URL override (e.g. `https://omnigent.example.com` or `http://127.0.0.1:6767`). When set, this takes precedence over local auto-discovery. Leave empty to auto-discover a locally running Omnigent server."
+        },
+        "omnigent.token": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional bearer token override. **Prefer the CLI token** stored in `~/.omnigent/auth_tokens.json` (auto-resolved) over setting a token here. When set, this takes precedence over the file token. Treat as a secret; it is never logged."
+        },
+        "omnigent.defaultAgentId": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Default agent id (e.g. `ag_…`) used when creating a session. When set, the agent picker is skipped. Leave empty to be prompted to choose an agent from the server's `GET /v1/agents` list each time you open a session."
+        },
+        "omnigent.defaultAgentName": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Informational name of your preferred agent. Display-only — session creation uses `#omnigent.defaultAgentId#`. Use this to remember which agent the id refers to."
+        },
+        "omnigent.renderMode": {
+          "type": "string",
+          "enum": [
+            "iframe",
+            "embed"
+          ],
+          "enumDescriptions": [
+            "Host the running Omnigent server inside an iframe (default). Requires a local server; no token is ever placed in the URL.",
+            "Mount the bundled Omnigent SPA (embed) directly. Experimental/quarantined — requires the embed assets to be present."
+          ],
+          "default": "iframe",
+          "markdownDescription": "How the Omnigent panel renders. `iframe` (default) loads the running local server; `embed` mounts the bundled SPA. The iframe path is used only for local servers; remote/unknown servers fall back to the embed path."
+        },
+        "omnigent.panelLocation": {
+          "type": "string",
+          "enum": [
+            "right",
+            "editor",
+            "left"
+          ],
+          "enumDescriptions": [
+            "Reveal the Omnigent panel in the right secondary side bar. NOTE: VS Code does not let an extension force this placement, so it is best-effort — the first time, drag the Omnigent view into the Secondary Side Bar (View → Appearance → Secondary Side Bar) and VS Code remembers it.",
+            "Open Omnigent as a webview pane beside the active editor (ViewColumn.Beside) — the same mechanism the Claude Code extension uses for its conversation pane. Reliable right-hand placement; this is the default.",
+            "Reveal the Omnigent panel in its activity-bar container on the left."
+          ],
+          "default": "editor",
+          "markdownDescription": "Where **Omnigent: Open** reveals the panel. `editor` (default) opens a webview pane beside your code (like the Claude Code conversation pane); `right` targets the secondary side bar (best-effort — VS Code remembers a one-time manual drag); `left` keeps the activity-bar view."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "omnigent-container",
+          "title": "Omnigent",
+          "icon": "media/omnigent-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "omnigent-container": [
+        {
+          "type": "webview",
+          "id": "omnigent.panel",
+          "name": "Omnigent",
+          "when": "true"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "omnigent.open",
+        "title": "Omnigent: Open",
+        "icon": "media/omnigent-icon.svg"
+      },
+      {
+        "command": "omnigent.openSession",
+        "title": "Omnigent: Open / Switch Session"
+      },
+      {
+        "command": "omnigent.sendSelection",
+        "title": "Omnigent: Send Selection to Agent"
+      },
+      {
+        "command": "omnigent.viewDiffs",
+        "title": "Omnigent: View Changed Files (Diffs)"
+      },
+      {
+        "command": "omnigent.applyDiffs",
+        "title": "Omnigent: Apply Changed Files"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "omnigent.sendSelection",
+          "when": "editorHasSelection",
+          "group": "omnigent@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "omnigent.open",
+          "group": "navigation@99"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "omnigent.open",
+          "when": "view == omnigent.panel",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "omnigent.open"
+        },
+        {
+          "command": "omnigent.openSession"
+        },
+        {
+          "command": "omnigent.sendSelection"
+        },
+        {
+          "command": "omnigent.viewDiffs"
+        },
+        {
+          "command": "omnigent.applyDiffs"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "build:vendor": "node scripts/build-vendor.js",
+    "build:bootstrap": "node scripts/build-bootstrap.js",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.21.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router": "^6.30.4",
+    "react-router-dom": "^6.30.4",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

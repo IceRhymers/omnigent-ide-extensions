@@ -1,0 +1,15 @@
+{
+  "_comment": "Pinned ap-web embed artifact metadata (A6). buildSha matches the submodule at third_party/omnigent. The embed leaves React/ReactDOM/react-router(-dom) as bare externals; the VS Code webview bootstrap supplies them via the import-map pointing to media/apweb/vendor/. Pin the exact external versions here to catch drift.",
+  "apweb": {
+    "repo": "github.com/omnigent-ai/omnigent",
+    "buildSha": "84f4264a8eecf7fd0eaa4111c727c8888aefa58f",
+    "version": "v0.1.0-635-g84f4264a",
+    "entry": "omnigent-embed.js"
+  },
+  "externals": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router": "6.30.4",
+    "react-router-dom": "6.30.4"
+  }
+}

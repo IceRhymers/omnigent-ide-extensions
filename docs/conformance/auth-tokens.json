@@ -1,0 +1,52 @@
+{
+  "description": "Language-neutral conformance vectors for resolving a token from ~/.omnigent/auth_tokens.json for a given origin. The file is a JSON object keyed by origin (scheme + host[:port]). Two record shapes exist: (1) a normal bearer record { token, user_id, expires_at } and (2) a Databricks pointer record { auth_type: 'databricks', workspace_host } that carries NO token and signals that a fresh OAuth token must be minted via `databricks auth login`. Resolution matches the requested origin exactly. Output 'kind' is one of: 'bearer' (a usable token was found), 'databricks-pointer' (a pointer record matched; caller must run databricks login), 'none' (no entry for the origin). Tokens in vectors are placeholder non-secret strings.",
+  "cases": [
+    {
+      "name": "normal_bearer_record_match",
+      "input": {
+        "origin": "https://omnigent.example.com",
+        "tokens": {
+          "https://omnigent.example.com": { "token": "JWT_PLACEHOLDER_A", "user_id": "user-1", "expires_at": 4102444800 }
+        }
+      },
+      "expected": { "kind": "bearer", "origin": "https://omnigent.example.com", "token": "JWT_PLACEHOLDER_A", "userId": "user-1", "expiresAt": 4102444800 }
+    },
+    {
+      "name": "databricks_pointer_record_match",
+      "input": {
+        "origin": "https://dbc-abc123.cloud.databricks.com",
+        "tokens": {
+          "https://dbc-abc123.cloud.databricks.com": { "auth_type": "databricks", "workspace_host": "https://dbc-abc123.cloud.databricks.com" }
+        }
+      },
+      "expected": { "kind": "databricks-pointer", "origin": "https://dbc-abc123.cloud.databricks.com", "workspaceHost": "https://dbc-abc123.cloud.databricks.com" }
+    },
+    {
+      "name": "no_entry_for_origin",
+      "input": {
+        "origin": "http://127.0.0.1:6767",
+        "tokens": {
+          "https://omnigent.example.com": { "token": "JWT_PLACEHOLDER_A", "user_id": "user-1", "expires_at": 4102444800 }
+        }
+      },
+      "expected": { "kind": "none", "origin": "http://127.0.0.1:6767" }
+    },
+    {
+      "name": "multiple_origins_selects_matching",
+      "input": {
+        "origin": "http://127.0.0.1:6767",
+        "tokens": {
+          "https://omnigent.example.com": { "token": "JWT_PLACEHOLDER_A", "user_id": "user-1", "expires_at": 4102444800 },
+          "http://127.0.0.1:6767": { "token": "JWT_PLACEHOLDER_LOCAL", "user_id": "local-user", "expires_at": 4102444800 },
+          "https://dbc-abc123.cloud.databricks.com": { "auth_type": "databricks", "workspace_host": "https://dbc-abc123.cloud.databricks.com" }
+        }
+      },
+      "expected": { "kind": "bearer", "origin": "http://127.0.0.1:6767", "token": "JWT_PLACEHOLDER_LOCAL", "userId": "local-user", "expiresAt": 4102444800 }
+    },
+    {
+      "name": "empty_file_no_entry",
+      "input": { "origin": "http://127.0.0.1:6767", "tokens": {} },
+      "expected": { "kind": "none", "origin": "http://127.0.0.1:6767" }
+    }
+  ]
+}
