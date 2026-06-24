@@ -87,7 +87,7 @@
       {
         "command": "omnigent.open",
         "title": "Omnigent: Open",
-        "icon": "$(rocket)"
+        "icon": "media/icon.svg"
       },
       {
         "command": "omnigent.openSession",
@@ -112,6 +112,12 @@
           "command": "omnigent.sendSelection",
           "when": "editorHasSelection",
           "group": "omnigent@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "omnigent.open",
+          "group": "navigation@99"
         }
       ],
       "view/title": [
