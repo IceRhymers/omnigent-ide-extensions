@@ -81,6 +81,19 @@ export async function apiFetch<T>(
   return { ok: false, status: res.status, error: outcome };
 }
 
+// ── Agents ─────────────────────────────────────────────────────────────────────
+
+export interface Agent {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+/** List the agents available on the server. Required to create a session (agent_id). */
+export async function listAgents(opts: ClientOptions): Promise<ApiResponse<Agent[]>> {
+  return apiFetch<Agent[]>(opts, "/v1/agents");
+}
+
 // ── Sessions ──────────────────────────────────────────────────────────────────
 
 export interface Session {
@@ -89,8 +102,19 @@ export interface Session {
   [key: string]: unknown;
 }
 
-export async function createSession(opts: ClientOptions): Promise<ApiResponse<Session>> {
-  return apiFetch<Session>(opts, "/v1/sessions", { method: "POST", body: "{}" });
+/**
+ * Create a session. The server requires an `agent_id` in the body; posting `{}`
+ * yields a 422 (`missing agent_id`). Callers resolve the agent first (default
+ * setting or agent picker) and pass its id here.
+ */
+export async function createSession(
+  opts: ClientOptions,
+  agentId: string,
+): Promise<ApiResponse<Session>> {
+  return apiFetch<Session>(opts, "/v1/sessions", {
+    method: "POST",
+    body: JSON.stringify({ agent_id: agentId }),
+  });
 }
 
 export async function getSession(opts: ClientOptions, id: string): Promise<ApiResponse<Session>> {

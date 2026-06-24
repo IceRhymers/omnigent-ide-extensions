@@ -18,7 +18,10 @@
  *  - img-src — the vscode-resource scheme for local assets + data URIs + https:
  *    (OmnigentApp may display remote avatars/thumbnails).
  *  - font-src — the vscode-resource scheme.
- *  - frame-src 'none' — Option B mounts OmnigentApp directly; no remote iframe.
+ *  - frame-src {serverOrigin} — the default `iframe` render mode hosts the running
+ *    Omnigent server in an <iframe>; the server is a separate origin so it must be
+ *    allowlisted here. (The quarantined `embed` mode does not use frames; allowing
+ *    the server origin is harmless for it.)
  *  - worker-src <cspSource> blob: — Monaco spawns workers from blob: URLs.
  *
  * IMPORTANT: `webviewCspSource` (vscode's allowlist for the extension's own
@@ -92,7 +95,7 @@ export function buildCsp(opts: BuildCspOptions): string {
     `connect-src ${connectSrc}`,
     `img-src ${imgSrc}`,
     `font-src ${fontSrc}`,
-    `frame-src 'none'`,
+    `frame-src ${serverOrigin}`,
     `worker-src ${workerSrc}`,
   ];
 

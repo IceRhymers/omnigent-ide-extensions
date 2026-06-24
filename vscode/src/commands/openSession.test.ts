@@ -1,5 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { statusBarLabel, statusBarTooltip } from "./openSession";
+import { statusBarLabel, statusBarTooltip, agentPickItems } from "./openSession";
+
+describe("agentPickItems", () => {
+  it("maps agents to QuickPick items carrying the agent id", () => {
+    const items = agentPickItems([
+      { id: "ag_1", name: "Coder", description: "writes code" },
+      { id: "ag_2", name: "Reviewer" },
+    ]);
+    expect(items).toEqual([
+      { label: "Coder", detail: "writes code", agentId: "ag_1" },
+      { label: "Reviewer", detail: undefined, agentId: "ag_2" },
+    ]);
+  });
+  it("returns an empty array for no agents", () => {
+    expect(agentPickItems([])).toEqual([]);
+  });
+});
 
 describe("statusBarLabel", () => {
   it("shows check + home for connected local", () => {

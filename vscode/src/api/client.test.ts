@@ -5,7 +5,28 @@ import {
   buildMessageEvent,
   parseDiffResponse,
   parseSseChunk,
+  createSession,
+  listAgents,
+  type ClientOptions,
+  type FetchFn,
 } from "./client";
+
+/** Build ClientOptions with a fetch stub that records the last call and returns `body`. */
+function stubFetch(status: number, body: unknown): {
+  opts: ClientOptions;
+  calls: Array<{ url: string; init: RequestInit }>;
+} {
+  const calls: Array<{ url: string; init: RequestInit }> = [];
+  const fetchImpl = (async (url: unknown, init: RequestInit = {}) => {
+    calls.push({ url: String(url), init });
+    return {
+      status,
+      ok: status >= 200 && status < 300,
+      json: async () => body,
+    } as unknown as Response;
+  }) as unknown as FetchFn;
+  return { opts: { baseUrl: "http://127.0.0.1:6767", fetchImpl }, calls };
+}
 
 describe("buildAuthHeaders", () => {
   it("returns Authorization header when token present", () => {
@@ -39,6 +60,33 @@ describe("buildMessageEvent", () => {
   it("omits context when no path", () => {
     const e = buildMessageEvent("hello");
     expect((e as Record<string, unknown>).context).toBeUndefined();
+  });
+});
+
+describe("createSession", () => {
+  it("POSTs agent_id in the body (fixes the 422 missing agent_id)", async () => {
+    const { opts, calls } = stubFetch(201, { id: "conv_123" });
+    const res = await createSession(opts, "ag_42");
+    expect(res.ok).toBe(true);
+    expect(res.data?.id).toBe("conv_123");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("http://127.0.0.1:6767/v1/sessions");
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ agent_id: "ag_42" });
+  });
+});
+
+describe("listAgents", () => {
+  it("GETs /v1/agents and returns the agent list", async () => {
+    const agents = [
+      { id: "ag_1", name: "Coder", description: "writes code" },
+      { id: "ag_2", name: "Reviewer" },
+    ];
+    const { opts, calls } = stubFetch(200, agents);
+    const res = await listAgents(opts);
+    expect(res.ok).toBe(true);
+    expect(res.data).toEqual(agents);
+    expect(calls[0].url).toBe("http://127.0.0.1:6767/v1/agents");
   });
 });
 

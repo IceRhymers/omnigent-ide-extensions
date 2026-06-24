@@ -17,11 +17,15 @@ vitest.config.ts
 .gitignore
 .vscodeignore
 
+# Internal OMC/session state — never ship in the package
+.omc/**
+
 # Dependencies are bundled into dist/ by esbuild — not needed in the package
 node_modules/**
 
 # Source maps (drop to keep the package smaller)
 **/*.map
 
-# Keep: dist/**, media/** (apweb embed + vendor + bootstrap.js), package.json,
-# README.md, apweb-pin.json, media/icon.svg
+# Keep: dist/** (the bundled extension — includes the default iframe render path,
+# so media/apweb is NOT required for the default renderMode), media/** (icon.svg +
+# bootstrap.js for the optional embed renderMode), package.json, README.md, apweb-pin.json

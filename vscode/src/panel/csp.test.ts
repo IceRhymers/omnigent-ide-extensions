@@ -44,8 +44,11 @@ describe("buildCsp (PM2 guard)", () => {
     expect(scriptDirective).toContain("'wasm-unsafe-eval'");
   });
 
-  it("frame-src is none (PM2: no iframe)", () => {
-    expect(buildCsp(base)).toContain("frame-src 'none'");
+  it("frame-src allows the server origin (iframe render mode)", () => {
+    const csp = buildCsp(base);
+    const frameDirective = csp.split(";").find((d) => d.trim().startsWith("frame-src")) ?? "";
+    expect(frameDirective).toContain("https://omnigent.example.com");
+    expect(frameDirective).not.toContain("'none'");
   });
 
   it("connect-src includes the server origin (PM2)", () => {

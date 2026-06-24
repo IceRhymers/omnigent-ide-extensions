@@ -86,6 +86,32 @@ class UnitTests {
     }
 
     @Test
+    fun parseAgents() {
+        val raw = """[{"id":"ag_1","name":"Builder","description":"Writes code"},{"id":"ag_2","name":"Reviewer"}]"""
+        val agents = OmnigentPayloads.parseAgents(raw)
+        assertEquals(2, agents.size)
+        assertEquals("ag_1", agents[0].id)
+        assertEquals("Builder", agents[0].name)
+        assertEquals("Writes code", agents[0].description)
+        assertEquals("ag_2", agents[1].id)
+        assertNull(agents[1].description)
+    }
+
+    @Test
+    fun parseAgents_malformedIsEmpty() {
+        assertTrue(OmnigentPayloads.parseAgents("not json").isEmpty())
+        // Entries missing required id/name are dropped.
+        assertTrue(OmnigentPayloads.parseAgents("""[{"name":"NoId"}]""").isEmpty())
+    }
+
+    @Test
+    fun buildCreateSessionBody_includesAgentId() {
+        val body = OmnigentPayloads.buildCreateSessionBody("ag_42")
+        assertEquals("ag_42", body["agent_id"]!!.jsonPrimitive.content)
+        assertEquals("""{"agent_id":"ag_42"}""", body.toString())
+    }
+
+    @Test
     fun isChangedFilesEvent() {
         assertTrue(OmnigentPayloads.isChangedFilesEvent(SseEvent("session.changed_files.invalidated", "{}")))
         assertFalse(OmnigentPayloads.isChangedFilesEvent(SseEvent("other.event", "{}")))

@@ -1,33 +1,27 @@
 /**
- * A5/A6 — WebviewViewProvider for the Omnigent activity-bar panel.
+ * A5/A6/A11 — WebviewViewProvider for the Omnigent activity-bar panel.
  *
- * This is the thin VS Code adapter layer. All pure logic lives in
- * csp.ts / html.ts / messages.ts so it is testable without an IDE host.
+ * This is the thin VS Code adapter layer. All render logic is shared with the
+ * editor-beside panel host via panel/host.ts (renderInto); pure logic lives in
+ * csp.ts / html.ts / iframeHtml.ts / messages.ts so it is testable without an
+ * IDE host.
  *
  * Responsibilities:
- *  - Own the webview lifecycle (resolveWebviewView, dispose).
- *  - Generate a fresh nonce + CSP for every panel load.
- *  - Build the HTML with import-map, CSS link, and bootstrap module URI.
- *  - Post the typed InitMessage to the webview after load.
+ *  - Own the webview lifecycle (resolveWebviewView).
+ *  - Show a "Resolving server…" placeholder until init() supplies the resolved
+ *    server target, then (re)render via the shared host helper.
  *  - Accept NavigateMessage commands from the command layer (A8).
- *  - Forward Webview→Host messages to registered listeners.
- *
- * A6 import-map:  7 entries resolved to webview-resource URIs so that both
- * bootstrap.ts and omnigent-embed.js share the SAME React/react-router instances.
- *
- * localResourceRoots covers all media/ subdirectories:
- *   media/apweb/           — omnigent-embed.js (entry)
- *   media/apweb/chunks/    — relative chunk imports from omnigent-embed.js
- *   media/apweb/assets/    — CSS and static assets from dist-embed
- *   media/apweb/vendor/    — self-contained React/react-router ESM bundles
- *   media/bootstrap/       — bootstrap.js (ESM, externals via import-map)
+ *  - Forward Webview→Host messages to the output channel.
  */
 import * as vscode from "vscode";
-import * as crypto from "node:crypto";
-import { buildCsp, wsOriginsForServer } from "./csp";
-import { buildWebviewHtml, type ImportMapUris } from "./html";
+import {
+  embedLocalResourceRoots,
+  renderInto,
+  renderResolvingHtml,
+} from "./host";
 import type { ExtensionToWebview, WebviewToExtension } from "./messages";
 import type { ServerTarget } from "../config";
+import { readSettings } from "../config/vscodeSettings";
 import type { ResolvedToken } from "../auth/precedence";
 import { redact } from "../redact";
 
@@ -37,11 +31,33 @@ export class OmnigentViewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _output: vscode.OutputChannel;
 
+  // Last resolved server target / auth / route — stored so the panel can render
+  // (or re-render) with the REAL origin once the server is resolved, and so the
+  // editor-beside panel host can reuse the same state.
+  private _target?: ServerTarget;
+  private _resolved?: ResolvedToken;
+  private _route = "/";
+
   constructor(
     private readonly _extensionUri: vscode.Uri,
     output: vscode.OutputChannel,
   ) {
     this._output = output;
+  }
+
+  /** The active server target, exposed so the editor panel host can reuse it (A11). */
+  get target(): ServerTarget | undefined {
+    return this._target;
+  }
+
+  /** The active route (e.g. "/c/<id>"), so a newly opened editor panel matches the view. */
+  get route(): string {
+    return this._route;
+  }
+
+  /** The bearer token for the embed handshake (manual/file sources only). */
+  get token(): string | undefined {
+    return this._resolved ? this._tokenOf(this._resolved) : undefined;
   }
 
   resolveWebviewView(
@@ -53,18 +69,7 @@ export class OmnigentViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [
-        // Top-level media/ (icon, etc.)
-        vscode.Uri.joinPath(this._extensionUri, "media"),
-        // ap-web dist-embed entry + chunks + assets
-        vscode.Uri.joinPath(this._extensionUri, "media", "apweb"),
-        vscode.Uri.joinPath(this._extensionUri, "media", "apweb", "chunks"),
-        vscode.Uri.joinPath(this._extensionUri, "media", "apweb", "assets"),
-        // Vendor bundles (React, react-router-dom, etc.)
-        vscode.Uri.joinPath(this._extensionUri, "media", "apweb", "vendor"),
-        // Bootstrap bundle
-        vscode.Uri.joinPath(this._extensionUri, "media", "bootstrap"),
-      ],
+      localResourceRoots: embedLocalResourceRoots(this._extensionUri),
     };
 
     // Listen for webview→host messages.
@@ -76,7 +81,13 @@ export class OmnigentViewProvider implements vscode.WebviewViewProvider {
       }
     });
 
-    this._render(webviewView.webview);
+    // The view can resolve BEFORE the server target is known. Show a lightweight
+    // placeholder until init() arrives with the resolved origin, then re-render.
+    if (this._target) {
+      this._render(webviewView.webview);
+    } else {
+      webviewView.webview.html = renderResolvingHtml();
+    }
   }
 
   /** Called by the command layer (A8) to send a navigate message. */
@@ -86,59 +97,44 @@ export class OmnigentViewProvider implements vscode.WebviewViewProvider {
     return true;
   }
 
-  /** Called by A8 / extension.ts to initialise with resolved server+auth. */
+  /**
+   * Called by extension.ts once the server + auth are resolved. Stores the
+   * target/route and (re)renders the panel with the REAL origin so the iframe
+   * src and CSP frame-src use the resolved server, not a placeholder.
+   */
   init(target: ServerTarget, resolved: ResolvedToken, route = "/"): void {
-    if (!this._view) return;
-    const token = resolved.source === "manual" || resolved.source === "file"
+    this._target = target;
+    this._resolved = resolved;
+    this._route = route;
+    this._output.appendLine(
+      `[omnigent] init (origin=${target.origin}, hostType=${target.hostType}, tokenSource=${resolved.source}, token=${redact(this._tokenOf(resolved))})`,
+    );
+    if (this._view) {
+      this._render(this._view.webview);
+    }
+  }
+
+  /** Extract the bearer token from a resolved token (manual/file only). */
+  private _tokenOf(resolved: ResolvedToken): string | undefined {
+    return resolved.source === "manual" || resolved.source === "file"
       ? (resolved as { token: string }).token
       : undefined;
-    this._output.appendLine(
-      `[omnigent] posting init (origin=${target.origin}, tokenSource=${resolved.source}, token=${redact(token)})`,
-    );
-    const msg: ExtensionToWebview = {
-      type: "omnigent/init",
-      serverUrl: target.baseUrl,
-      token,
-      route,
-      isDarkMode: vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark,
-    };
-    this._view.webview.postMessage(msg);
   }
 
   private _render(webview: vscode.Webview): void {
-    const nonce = crypto.randomBytes(16).toString("base64url");
-    const csp = buildCsp({
-      serverOrigin: "http://127.0.0.1:6767", // placeholder; real target posted via init()
-      wsOrigins: wsOriginsForServer("http://127.0.0.1:6767"),
-      nonce,
-      cspSource: webview.cspSource,
+    const target = this._target;
+    if (!target) {
+      webview.html = renderResolvingHtml();
+      return;
+    }
+    renderInto(webview, {
+      target,
+      extensionUri: this._extensionUri,
+      renderMode: readSettings().renderMode,
+      route: this._route,
+      token: this.token,
+      isDarkMode: vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark,
+      log: (m) => this._output.appendLine(m),
     });
-
-    // Helper to build a webview URI from a path relative to media/
-    const mediaUri = (...segments: string[]) =>
-      webview
-        .asWebviewUri(vscode.Uri.joinPath(this._extensionUri, "media", ...segments))
-        .toString();
-
-    // Import-map: 6 vendor bundles + omnigent-embed entry
-    const importMap: ImportMapUris = {
-      react: mediaUri("apweb", "vendor", "react.js"),
-      reactDom: mediaUri("apweb", "vendor", "react-dom.js"),
-      reactDomClient: mediaUri("apweb", "vendor", "react-dom-client.js"),
-      reactJsxRuntime: mediaUri("apweb", "vendor", "jsx-runtime.js"),
-      reactRouter: mediaUri("apweb", "vendor", "react-router.js"),
-      reactRouterDom: mediaUri("apweb", "vendor", "react-router-dom.js"),
-      omnigentEmbed: mediaUri("apweb", "omnigent-embed.js"),
-    };
-
-    // CSS shipped with the ap-web dist-embed bundle
-    const cssUri = mediaUri("apweb", "assets", "omnigent-embed.css");
-
-    // Bootstrap module URI (ESM; bare specifiers resolved via import-map above)
-    const bootstrapUri = mediaUri("bootstrap", "bootstrap.js");
-
-    const isDark = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark;
-    webview.html = buildWebviewHtml({ csp, nonce, bootstrapUri, cssUri, importMap, isDarkMode: isDark });
-    this._output.appendLine(`[omnigent] webview rendered (nonce=${nonce.slice(0, 8)}...)`);
   }
 }

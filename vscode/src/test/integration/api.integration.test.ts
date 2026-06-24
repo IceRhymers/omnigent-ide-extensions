@@ -13,6 +13,7 @@ import { StubServer } from "./stubServer";
 import {
   apiFetch,
   createSession,
+  listAgents,
   postSessionEvent,
   fetchDiff,
   listChangedFiles,
@@ -38,11 +39,12 @@ function opts(token?: string): ClientOptions {
 // ── PM1 guard: Authorization header on every request ─────────────────────────
 
 describe("PM1: fetcher attaches Authorization header", () => {
-  it("attaches Bearer on a /v1/sessions POST", async () => {
+  it("attaches Bearer on a /v1/sessions POST and sends agent_id", async () => {
     stub.on("POST", "/v1/sessions", () => ({ status: 200, body: { id: "s1" } }));
-    await createSession(opts("test-token"));
+    await createSession(opts("test-token"), "ag_99");
     const req = stub.lastRequest("POST", "/v1/sessions");
     expect(req?.headers["authorization"]).toBe("Bearer test-token");
+    expect(JSON.parse(req?.body ?? "{}")).toEqual({ agent_id: "ag_99" });
   });
 
   it("attaches Bearer on a /v1/sessions/{id}/events POST (send-selection path)", async () => {
@@ -79,9 +81,23 @@ describe("PM1: fetcher attaches Authorization header", () => {
 describe("session create and events", () => {
   it("createSession returns session id", async () => {
     stub.on("POST", "/v1/sessions", () => ({ status: 200, body: { id: "sess-abc", status: "running" } }));
-    const result = await createSession(opts("tok"));
+    const result = await createSession(opts("tok"), "ag_1");
     expect(result.ok).toBe(true);
     expect(result.data?.id).toBe("sess-abc");
+  });
+
+  it("listAgents returns the agent list", async () => {
+    stub.on("GET", "/v1/agents", () => ({
+      status: 200,
+      body: [
+        { id: "ag_1", name: "Coder", description: "writes code" },
+        { id: "ag_2", name: "Reviewer" },
+      ],
+    }));
+    const result = await listAgents(opts("tok"));
+    expect(result.ok).toBe(true);
+    expect(result.data).toHaveLength(2);
+    expect(result.data?.[0].id).toBe("ag_1");
   });
 
   it("postSessionEvent sends correct event shape", async () => {
@@ -101,7 +117,7 @@ describe("session create and events", () => {
 
   it("maps 401 response to reauth outcome", async () => {
     stub.on("POST", "/v1/sessions", () => ({ status: 401, body: { error: "unauthorized" } }));
-    const result = await createSession(opts("bad-token"));
+    const result = await createSession(opts("bad-token"), "ag_1");
     expect(result.ok).toBe(false);
     expect(result.status).toBe(401);
     expect(result.error).toBe("reauth");
@@ -109,7 +125,7 @@ describe("session create and events", () => {
 
   it("maps 403 to forbidden outcome", async () => {
     stub.on("POST", "/v1/sessions", () => ({ status: 403, body: { error: "forbidden" } }));
-    const result = await createSession(opts("tok"));
+    const result = await createSession(opts("tok"), "ag_1");
     expect(result.ok).toBe(false);
     expect(result.error).toBe("forbidden");
   });

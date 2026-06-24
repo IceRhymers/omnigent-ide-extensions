@@ -10,6 +10,12 @@ import type { HealthOutcome } from "../discovery";
 
 export type HostType = "local" | "remote" | "unknown";
 
+/** How the panel renders the Omnigent UI. `iframe` hosts the running server; `embed` mounts the bundle. */
+export type RenderMode = "iframe" | "embed";
+
+/** Where the openable panel appears. `right` (default) docks to the secondary side bar. */
+export type PanelLocation = "right" | "editor" | "left";
+
 export interface ServerTarget {
   baseUrl: string;
   origin: string;
@@ -22,6 +28,14 @@ export interface ServerTarget {
 export interface Settings {
   serverUrl: string;
   token: string;
+  /** Preferred agent id for session creation; skips the agent picker when set. */
+  defaultAgentId: string;
+  /** Human-readable name of the preferred agent (informational; resolved to id). */
+  defaultAgentName: string;
+  /** Panel render mode: `iframe` (default) hosts the running server; `embed` mounts the bundle. */
+  renderMode: RenderMode;
+  /** Where "Omnigent: Open" reveals the panel. */
+  panelLocation: PanelLocation;
 }
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);

@@ -11,6 +11,7 @@ export const window = {
   showInformationMessage: async () => undefined,
   showWarningMessage: async () => undefined,
   showErrorMessage: async () => undefined,
+  showQuickPick: async () => undefined,
   activeColorTheme: { kind: 2 /* Dark */ },
   activeTextEditor: undefined,
 };

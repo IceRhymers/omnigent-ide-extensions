@@ -21,6 +21,7 @@ import { OmnigentViewProvider, VIEW_ID } from "./panel/OmnigentViewProvider";
 import { makeSessionState } from "./commands/sessionState";
 import { registerSendSelection } from "./commands/sendSelection";
 import { registerOpenSession } from "./commands/openSession";
+import { registerOpenPanel } from "./commands/openPanel";
 import { registerDiffsCommand } from "./commands/diffs";
 import type { ClientOptions } from "./api/client";
 
@@ -52,6 +53,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ── A8: open-session command + status bar ─────────────────────────────────
   registerOpenSession(context, provider, sessionState, output);
+
+  // ── A11: open-panel command (configurable right-side placement) ───────────
+  registerOpenPanel(context, provider, output);
 
   // ── A9: diffs command + SSE watch ─────────────────────────────────────────
   const { stopSse: startSseWatch } = registerDiffsCommand(context, sessionState, output);

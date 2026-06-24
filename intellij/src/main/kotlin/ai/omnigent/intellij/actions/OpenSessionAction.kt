@@ -47,10 +47,16 @@ class OpenSessionAction : AnAction() {
         }
 
         state.updateStatus(SessionStateService.ConnectionStatus.CONNECTING)
-        log.info("[omnigent] openSession: creating session…")
+        log.info("[omnigent] openSession: resolving agent…")
 
         ApplicationManager.getApplication().executeOnPooledThread {
-            val result = OmnigentApiClient(opts).createSession()
+            val client = OmnigentApiClient(opts)
+
+            // Sessions require an agent_id (server returns 422 otherwise). Use the
+            // configured default when set, else fetch the catalog and let the user pick.
+            val agentId = resolveAgentId(project, state, client) ?: return@executeOnPooledThread
+
+            val result = client.createSession(agentId)
             ApplicationManager.getApplication().invokeLater {
                 val id = result.data
                 if (!result.ok || id == null) {
@@ -61,10 +67,68 @@ class OpenSessionAction : AnAction() {
                 }
                 state.sessionId = id
                 state.updateStatus(SessionStateService.ConnectionStatus.CONNECTED)
-                log.info("[omnigent] openSession: session $id created")
+                log.info("[omnigent] openSession: session $id created (agent $agentId)")
                 // Deep-link the JCEF browser to the session route (no iframe reload).
                 state.navigate("/c/$id")
             }
         }
+    }
+
+    /**
+     * Resolve the agent to create the session with. Returns the configured
+     * default when present; otherwise fetches `GET /v1/agents` and prompts the
+     * user to choose. Returns null (and surfaces an error on the EDT) when no
+     * agent can be resolved — the caller should abort session creation.
+     *
+     * Runs on a pooled thread; the chooser dialog is dispatched to the EDT via
+     * invokeAndWait so the selection can be returned synchronously.
+     */
+    private fun resolveAgentId(
+        project: com.intellij.openapi.project.Project,
+        state: SessionStateService,
+        client: OmnigentApiClient,
+    ): String? {
+        val configured = OmnigentSettings.getInstance().defaultAgentId
+        if (configured.isNotBlank()) return configured
+
+        val agentsResp = client.listAgents()
+        val agents = agentsResp.data
+        if (!agentsResp.ok || agents.isNullOrEmpty()) {
+            ApplicationManager.getApplication().invokeLater {
+                state.updateStatus(SessionStateService.ConnectionStatus.ERROR)
+                log.info("[omnigent] openSession: no agents available (${agentsResp.status}: ${agentsResp.error})")
+                Messages.showErrorDialog(
+                    project,
+                    "No agents available to start a session (${agentsResp.status}). " +
+                        "Set a default agent in Settings → Tools → Omnigent.",
+                    "Omnigent",
+                )
+            }
+            return null
+        }
+
+        if (agents.size == 1) return agents[0].id
+
+        val names = agents.map { it.name }.toTypedArray()
+        val chosenIndex = intArrayOf(-1)
+        ApplicationManager.getApplication().invokeAndWait {
+            chosenIndex[0] = Messages.showChooseDialog(
+                project,
+                "Choose an agent for the new session:",
+                "Omnigent",
+                null,
+                names,
+                names.first(),
+            )
+        }
+        val idx = chosenIndex[0]
+        if (idx < 0) {
+            // User cancelled the chooser.
+            ApplicationManager.getApplication().invokeLater {
+                state.updateStatus(SessionStateService.ConnectionStatus.ERROR)
+            }
+            return null
+        }
+        return agents[idx].id
     }
 }

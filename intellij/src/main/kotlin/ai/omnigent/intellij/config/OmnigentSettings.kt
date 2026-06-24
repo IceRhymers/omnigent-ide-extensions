@@ -27,6 +27,8 @@ class OmnigentSettings : PersistentStateComponent<OmnigentSettings.SettingsState
     data class SettingsState(
         var serverUrl: String = "",
         var token: String = "",
+        /** Optional default agent id for new sessions; when empty, the user is prompted to choose. */
+        var defaultAgentId: String = "",
     )
 
     private var state = SettingsState()
@@ -47,6 +49,10 @@ class OmnigentSettings : PersistentStateComponent<OmnigentSettings.SettingsState
     var token: String
         get() = state.token
         set(value) { state.token = value }
+
+    var defaultAgentId: String
+        get() = state.defaultAgentId
+        set(value) { state.defaultAgentId = value }
 
     companion object {
         fun getInstance(): OmnigentSettings =

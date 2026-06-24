@@ -1,55 +1,69 @@
-# omnigent-vscode (foundation)
+# omnigent-vscode
 
-VS Code extension that brings Omnigent into the editor. This directory currently contains the
-**foundation only** (Phase A steps A1–A4 of `.omc/plans/ralplan-omnigent-ide-extensions.md`):
-config + server-target resolution, local-server discovery, and auth/token + the long-lived auth
-lifecycle interface. The webview panel, native commands, and `.vsix` bundling are A5–A10 and are
-not built yet.
+VS Code extension that brings **Omnigent** into the editor: an Omnigent panel plus native editor
+commands (open/switch session, send selection, view/apply diffs).
+
+## How the panel renders
+
+By default the panel **iframes your running Omnigent server** (`renderMode: "iframe"`). The extension
+auto-discovers a local server (or uses `omnigent.serverUrl`) and loads it directly — the same UI you
+see at `http://127.0.0.1:6767`. This needs no separate web-app bundle.
+
+- The iframe path is used for **local** servers (no token ever goes in a URL).
+- `renderMode: "embed"` selects the experimental in-process embed bundle (requires building
+  `media/apweb/` via `scripts/build-apweb.md`); it is not required for normal use.
+
+## Opening the panel
+
+- Command **“Omnigent: Open”** (`omnigent.open`) or the rocket button on the panel title bar.
+- `omnigent.panelLocation` controls where it opens:
+  - `"right"` (default) — docked panel; on first open it best-effort moves to the secondary side
+    bar (VS Code remembers where you place it), à la the Claude Code panel.
+  - `"editor"` — opens as a webview **beside the editor** (`ViewColumn.Beside`) — always on the right.
+  - `"left"` — the activity-bar sidebar (original location).
+
+## Sessions
+
+“Omnigent: Open / Switch Session” creates a session against the server. Session create requires an
+**agent**: set `omnigent.defaultAgentId` to skip the prompt, otherwise the extension lists agents
+(`GET /v1/agents`) and lets you pick one. (Sending `agent_id` is what avoids the prior `422`.)
+
+## Settings
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `omnigent.serverUrl` | `""` | Manual server URL override; empty = auto-discover local. |
+| `omnigent.token` | `""` | Optional bearer override (prefer the CLI token file). |
+| `omnigent.renderMode` | `iframe` | `iframe` (default) or `embed`. |
+| `omnigent.panelLocation` | `right` | `right` \| `editor` \| `left`. |
+| `omnigent.defaultAgentId` | `""` | Skip the agent picker on session create. |
+| `omnigent.defaultAgentName` | `""` | Agent name fallback when no id is set. |
+
+## Build / test / package
+
+```
+npm install
+npm run type-check   # tsc --noEmit
+npm run test         # vitest run
+npm run build        # esbuild -> dist/extension.js
+npx @vscode/vsce package   # -> omnigent-vscode-<version>.vsix   (or: make package-vscode)
+```
+
+The `.vsix` runtime is `dist/extension.js` + `media/`. The default iframe render path is fully
+contained in `dist/extension.js`, so `media/apweb/` is only needed for the optional `embed` mode.
 
 ## Layout
 
 ```
 src/
-├── extension.ts          # activate()/deactivate() — wires the foundation, redacted output channel
-├── redact.ts             # secret-redaction helpers (never log tokens)
-├── config/               # settings + server-target + host-type resolution (A2)
-│   ├── index.ts          #   pure resolution (resolveServerTarget, hostTypeOf, ...)
-│   └── vscodeSettings.ts #   thin vscode adapter (only place that touches the vscode API)
-├── discovery/            # local-server discovery (A3)
-│   ├── pidfile.ts        #   pure pidfile parse
-│   ├── health.ts         #   pure /health interpretation + runtime probe
-│   ├── liveness.ts       #   runtime PID liveness (process.kill(pid,0))
-│   └── index.ts          #   injectable-IO discovery orchestrator
-├── auth/                 # auth/token + lifecycle (A4)
-│   ├── tokens.ts         #   pure token resolution (bearer vs databricks pointer)
-│   ├── precedence.ts     #   pure precedence + authHeader()
-│   ├── httpStatus.ts     #   pure 401/403 mapping
-│   ├── lifecycle.ts      #   long-lived SSE/WS auth lifecycle state machine + interface
-│   ├── cli.ts            #   CLI login boundary (omnigent/databricks; not executed in tests)
-│   └── index.ts          #   injectable-IO token reader
-└── test/vectors.ts       # loads docs/conformance/*.json (the shared contract)
+├── extension.ts          # activate()/deactivate() — wires config/discovery/auth, panel, commands
+├── api/client.ts         # /v1 REST client (sessions, agents, events, diffs, SSE)
+├── commands/             # openSession (agent picker), openPanel (omnigent.open), sendSelection, diffs
+├── panel/                # OmnigentViewProvider, host.ts (shared render), iframeHtml.ts, csp.ts, html.ts (embed)
+├── config/               # settings + server-target/host-type resolution
+├── discovery/            # local-server discovery (pidfile/health/liveness)
+└── auth/                 # token resolution + auth lifecycle
 ```
 
-The normative contract is `../docs/discovery-auth.md`; the executable conformance vectors are
-`../docs/conformance/*.json` (shared verbatim with the future Kotlin/IntelliJ impl — keep them free
-of language specifics).
-
-## Build / test
-
-```
-npm install
-npm run type-check   # tsc --noEmit
-npm run build        # esbuild -> dist/extension.js
-npm run test         # vitest run (conformance-driven unit tests; no IDE host / network)
-```
-
-## Carry-forward notes for A5–A10
-
-- **A6 embed externals:** the bundled `ap-web` embed leaves React/ReactDOM/react-router(-dom) as
-  bare externals — the webview bootstrap must supply React 18 + react-router-dom 6.4.x and a Router
-  around `OmnigentApp`. See `apweb-pin.json` and `.omc/autopilot/A6a-embed-contract-gate.md`.
-- **WS auth (Q2):** browsers cannot set headers on a WS handshake. Local single-user needs no WS
-  auth (v1 path). Remote needs the token via query-string/subprotocol — confirm before AC4 on
-  managed sessions.
-- The auth lifecycle (`auth/lifecycle.ts`) is a documented interface only; wire it to a live SSE/WS
-  transport in A5/A6.
+The discovery/auth contract is `../docs/discovery-auth.md` with shared conformance vectors in
+`../docs/conformance/*.json` (kept in sync with the IntelliJ implementation).

@@ -53,6 +53,12 @@ data class ChangedFile(
     val environmentId: String? = null,
 )
 
+data class Agent(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+)
+
 data class DiffResult(
     val before: String,
     val after: String,
@@ -108,6 +114,29 @@ object OmnigentPayloads {
             )
         }
     }
+
+    /** Parse an agents list JSON array into typed records. Pure. */
+    fun parseAgents(rawBody: String): List<Agent> {
+        val arr = try {
+            json.parseToJsonElement(rawBody).jsonArray
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        return arr.mapNotNull { el ->
+            val obj = el as? JsonObject ?: return@mapNotNull null
+            val id = obj["id"]?.jsonPrimitive?.contentOrNull() ?: return@mapNotNull null
+            val name = obj["name"]?.jsonPrimitive?.contentOrNull() ?: return@mapNotNull null
+            Agent(
+                id = id,
+                name = name,
+                description = obj["description"]?.jsonPrimitive?.contentOrNull(),
+            )
+        }
+    }
+
+    /** Build the create-session request body `{ "agent_id": ... }`. Pure. */
+    fun buildCreateSessionBody(agentId: String): JsonObject =
+        buildJsonObject { put("agent_id", agentId) }
 
     /** Extract the session id from a create-session JSON response body. Pure. */
     fun parseSessionId(rawBody: String): String? = try {
@@ -185,10 +214,17 @@ class OmnigentApiClient(
         }
     }
 
-    fun createSession(): ApiResponse<String> {
+    fun listAgents(): ApiResponse<List<Agent>> {
+        val resp = execute(requestBuilder("/v1/agents").GET())
+        return if (resp.ok) ApiResponse(true, resp.status, OmnigentPayloads.parseAgents(resp.data ?: ""))
+        else ApiResponse(false, resp.status, null, resp.error)
+    }
+
+    fun createSession(agentId: String): ApiResponse<String> {
+        val body = OmnigentPayloads.buildCreateSessionBody(agentId)
         val builder = requestBuilder("/v1/sessions")
             .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString("{}"))
+            .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
         val resp = execute(builder)
         return if (resp.ok) ApiResponse(true, resp.status, OmnigentPayloads.parseSessionId(resp.data ?: ""))
         else ApiResponse(false, resp.status, null, resp.error)
