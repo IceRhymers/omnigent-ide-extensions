@@ -12,6 +12,14 @@ export const window = {
   showWarningMessage: async () => undefined,
   showErrorMessage: async () => undefined,
   showQuickPick: async () => undefined,
+  // Default stub panel; tests that exercise the editor panel override this with
+  // vi.spyOn to inject a fake WebviewPanel and assert on its webview.
+  createWebviewPanel: (_id: string, _title: string, _col: unknown, _opts: unknown) => ({
+    webview: { html: "", postMessage: () => true, cspSource: "vscode-resource:" },
+    reveal: () => {},
+    onDidDispose: (_cb: () => void) => ({ dispose: () => {} }),
+    dispose: () => {},
+  }),
   activeColorTheme: { kind: 2 /* Dark */ },
   activeTextEditor: undefined,
 };
@@ -42,6 +50,37 @@ export const EventEmitter = class {
 };
 
 export const StatusBarAlignment = { Left: 1, Right: 2 };
+export const ViewColumn = { Active: -1, Beside: -2, One: 1, Two: 2 };
 export const ColorThemeKind = { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 };
+export const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
+
+export const TreeItem = class {
+  label: string;
+  collapsibleState: number;
+  description?: string;
+  tooltip?: unknown;
+  iconPath?: unknown;
+  contextValue?: string;
+  command?: unknown;
+  id?: string;
+  constructor(label: string, collapsibleState = 0) {
+    this.label = label;
+    this.collapsibleState = collapsibleState;
+  }
+};
+
+export const ThemeIcon = class {
+  id: string;
+  constructor(id: string) {
+    this.id = id;
+  }
+};
+
+export const MarkdownString = class {
+  value: string;
+  constructor(value = "") {
+    this.value = value;
+  }
+};
 
 export const WebviewViewProvider = class {};

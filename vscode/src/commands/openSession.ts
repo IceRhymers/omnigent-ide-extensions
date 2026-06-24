@@ -1,8 +1,9 @@
 /**
  * A8 — Native command: open/switch session + connection status bar.
  *
- * Deep-link works by posting omnigent/navigate to the webview (drives OmnigentApp
- * router via basename — NOT an iframe reload, per the A6a gate doc).
+ * Deep-link works through the shared EditorPanelController, which navigates the
+ * editor-beside panel to /c/<id> (iframe re-render or embed omnigent/navigate —
+ * NOT an iframe reload on the embed path, per the A6a gate doc).
  *
  * Status-bar item shows: connection state (connecting/connected/error) + host type
  * (local/remote/unknown) derived from the config module.
@@ -10,7 +11,7 @@
 import * as vscode from "vscode";
 import { createSession, listAgents, ClientOptions, Agent } from "../api/client";
 import { readSettings } from "../config/vscodeSettings";
-import type { OmnigentViewProvider } from "../panel/OmnigentViewProvider";
+import type { EditorPanelController } from "../panel/EditorPanelController";
 import type { SessionState } from "./sessionState";
 import type { HostType } from "../config";
 
@@ -104,7 +105,7 @@ async function resolveAgentId(
 /** Register the open-session command and create the status-bar item. */
 export function registerOpenSession(
   context: vscode.ExtensionContext,
-  provider: OmnigentViewProvider,
+  controller: EditorPanelController,
   sessionState: SessionState,
   output: vscode.OutputChannel,
 ): vscode.StatusBarItem {
@@ -123,9 +124,6 @@ export function registerOpenSession(
   };
 
   const cmd = vscode.commands.registerCommand(OPEN_SESSION_COMMAND, async () => {
-    // Focus the Omnigent panel (VS Code will call resolveWebviewView if needed).
-    await vscode.commands.executeCommand("omnigent.panel.focus");
-
     const opts: ClientOptions | undefined = sessionState.clientOpts;
     if (!opts) {
       vscode.window.showWarningMessage("Omnigent: no server configured. Check omnigent.serverUrl.");
@@ -155,8 +153,8 @@ export function registerOpenSession(
     setStatus("connected", { sessionId: id });
     output.appendLine(`[omnigent] openSession: session ${id} created`);
 
-    // Deep-link OmnigentApp to the session route (drives the embedded router).
-    provider.postMessage({ type: "omnigent/navigate", route: `/c/${id}` });
+    // Deep-link the editor panel to the session route (opens/reveals + navigates).
+    controller.navigate(`/c/${id}`);
   });
 
   context.subscriptions.push(cmd);

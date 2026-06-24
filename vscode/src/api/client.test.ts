@@ -7,9 +7,26 @@ import {
   parseSseChunk,
   createSession,
   listAgents,
+  accumulateSessions,
+  listSessions,
+  listSessionsPage,
   type ClientOptions,
   type FetchFn,
+  type Session,
+  type SessionsPage,
 } from "./client";
+
+/** Build a SessionsPage with the given sessions and cursor fields. */
+function page(
+  data: Partial<Session>[],
+  extra: Partial<SessionsPage> = {},
+): SessionsPage {
+  return {
+    object: "list",
+    data: data.map((s) => ({ id: "conv_x", ...s })) as Session[],
+    ...extra,
+  };
+}
 
 /** Build ClientOptions with a fetch stub that records the last call and returns `body`. */
 function stubFetch(status: number, body: unknown): {
@@ -129,5 +146,170 @@ describe("parseSseChunk", () => {
   });
   it("ignores empty blocks", () => {
     expect(parseSseChunk("\n\n\n")).toHaveLength(0);
+  });
+});
+
+/** A fetch stub that returns each queued response in order, recording calls. */
+function sequenceFetch(
+  responses: Array<{ status: number; body: unknown }>,
+): { opts: ClientOptions; calls: Array<{ url: string }> } {
+  const calls: Array<{ url: string }> = [];
+  let i = 0;
+  const fetchImpl = (async (url: unknown) => {
+    calls.push({ url: String(url) });
+    const r = responses[Math.min(i, responses.length - 1)];
+    i += 1;
+    return {
+      status: r.status,
+      ok: r.status >= 200 && r.status < 300,
+      json: async () => r.body,
+    } as unknown as Response;
+  }) as unknown as FetchFn;
+  return { opts: { baseUrl: "http://127.0.0.1:6767", fetchImpl }, calls };
+}
+
+describe("accumulateSessions", () => {
+  it("concatenates a single page in order", () => {
+    const { sessions, truncated } = accumulateSessions(
+      [page([{ id: "a" }, { id: "b" }], { has_more: false })],
+      200,
+    );
+    expect(sessions.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(truncated).toBe(false);
+  });
+
+  it("concatenates multiple pages in cursor order", () => {
+    const { sessions } = accumulateSessions(
+      [
+        page([{ id: "a" }, { id: "b" }], { has_more: true, last_id: "b" }),
+        page([{ id: "c" }], { has_more: false }),
+      ],
+      200,
+    );
+    expect(sessions.map((s) => s.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("truncates when has_more is still true at the cap", () => {
+    const { sessions, truncated } = accumulateSessions(
+      [page([{ id: "a" }, { id: "b" }, { id: "c" }], { has_more: true })],
+      2,
+    );
+    expect(sessions.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(truncated).toBe(true);
+  });
+
+  it("is not truncated when the final page has has_more false even at the cap", () => {
+    const { sessions, truncated } = accumulateSessions(
+      [page([{ id: "a" }, { id: "b" }], { has_more: false })],
+      2,
+    );
+    expect(sessions.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(truncated).toBe(false);
+  });
+});
+
+describe("listSessionsPage", () => {
+  it("sets limit and after query params when provided", async () => {
+    const { opts, calls } = sequenceFetch([
+      { status: 200, body: page([{ id: "a" }]) },
+    ]);
+    await listSessionsPage(opts, { limit: 50, after: "cur_1" });
+    expect(calls[0].url).toBe(
+      "http://127.0.0.1:6767/v1/sessions?limit=50&after=cur_1",
+    );
+  });
+
+  it("omits query params when none provided", async () => {
+    const { opts, calls } = sequenceFetch([
+      { status: 200, body: page([]) },
+    ]);
+    await listSessionsPage(opts);
+    expect(calls[0].url).toBe("http://127.0.0.1:6767/v1/sessions");
+  });
+});
+
+describe("listSessions", () => {
+  it("follows the after/has_more cursor chain and accumulates sessions", async () => {
+    const { opts, calls } = sequenceFetch([
+      { status: 200, body: page([{ id: "a" }, { id: "b" }], { has_more: true, last_id: "b" }) },
+      { status: 200, body: page([{ id: "c" }], { has_more: false, last_id: "c" }) },
+    ]);
+    const res = await listSessions(opts);
+    expect(res.ok).toBe(true);
+    expect(res.data?.map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].url).toContain("after=b");
+  });
+
+  it("stops at the cap without following further pages", async () => {
+    const { opts, calls } = sequenceFetch([
+      { status: 200, body: page([{ id: "a" }, { id: "b" }], { has_more: true, last_id: "b" }) },
+    ]);
+    const res = await listSessions(opts, 2);
+    expect(res.data?.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("propagates a 401 as a non-ok response without throwing", async () => {
+    const { opts } = sequenceFetch([{ status: 401, body: {} }]);
+    const res = await listSessions(opts);
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(401);
+    expect(res.error).toBe("reauth");
+  });
+
+  it("propagates a 403 as a non-ok response", async () => {
+    const { opts } = sequenceFetch([{ status: 403, body: {} }]);
+    const res = await listSessions(opts);
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(403);
+    expect(res.error).toBe("forbidden");
+  });
+
+  it("maps a network error to status 0", async () => {
+    const fetchImpl = (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as FetchFn;
+    const res = await listSessions({ baseUrl: "http://127.0.0.1:6767", fetchImpl });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(0);
+  });
+});
+
+describe("pinned Session parsing", () => {
+  it("preserves optional fields and the archived boolean", async () => {
+    const session: Session = {
+      id: "conv_1",
+      agent_name: "claude-native-ui",
+      status: "running",
+      created_at: 1700000000,
+      updated_at: 1700000100,
+      title: "Fix the bug",
+      workspace: "/abs/path",
+      git_branch: "feat/x",
+      archived: true,
+      labels: { kind: "demo" },
+    };
+    const { opts } = sequenceFetch([
+      { status: 200, body: page([session], { has_more: false }) },
+    ]);
+    const res = await listSessions(opts);
+    const got = res.data?.[0];
+    expect(got?.archived).toBe(true);
+    expect(got?.title).toBe("Fix the bug");
+    expect(got?.workspace).toBe("/abs/path");
+    expect(got?.git_branch).toBe("feat/x");
+    expect(got?.labels).toEqual({ kind: "demo" });
+  });
+
+  it("parses a session that omits the optional fields", async () => {
+    const { opts } = sequenceFetch([
+      { status: 200, body: page([{ id: "conv_2" }], { has_more: false }) },
+    ]);
+    const res = await listSessions(opts);
+    const got = res.data?.[0];
+    expect(got?.id).toBe("conv_2");
+    expect(got?.title).toBeUndefined();
+    expect(got?.archived).toBeUndefined();
   });
 });

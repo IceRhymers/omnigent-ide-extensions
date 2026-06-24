@@ -1,15 +1,13 @@
 /**
- * Omnigent VS Code extension entry point (A1–A9 wired).
+ * Omnigent VS Code extension entry point.
  *
  * activate() wires:
- *  - Config / discovery / auth (A1–A4)
- *  - WebviewView provider + CSP (A5)
- *  - Embed bootstrap handshake (A6)
- *  - send-selection command (A7)
- *  - open-session command + status bar (A8)
- *  - view/apply diffs command + SSE watch (A9)
- *
- * Remaining: A10 (vsce package).
+ *  - Config / discovery / auth
+ *  - Sessions TreeView (activity-bar sidebar) + its filter/refresh commands
+ *  - EditorPanelController: the single editor-beside full-app surface
+ *  - send-selection command
+ *  - open-session command + status bar
+ *  - view/apply diffs command + SSE watch
  */
 import * as vscode from "vscode";
 import { discoverLocalServer, DEFAULT_HEALTH_TIMEOUT_MS } from "./discovery";
@@ -17,33 +15,61 @@ import { resolveServerTarget } from "./config";
 import { readSettings } from "./config/vscodeSettings";
 import { resolveToken } from "./auth";
 import { redact, redactObject } from "./redact";
-import { OmnigentViewProvider, VIEW_ID } from "./panel/OmnigentViewProvider";
+import { EditorPanelController } from "./panel/EditorPanelController";
+import { SessionsTreeProvider, SESSIONS_VIEW_ID } from "./sessions/SessionsTreeProvider";
 import { makeSessionState } from "./commands/sessionState";
 import { registerSendSelection } from "./commands/sendSelection";
 import { registerOpenSession } from "./commands/openSession";
 import { registerOpenPanel } from "./commands/openPanel";
+import {
+  registerOpenSessionFromTree,
+  registerSessionsTreeCommands,
+} from "./commands/sessionsTreeCommands";
 import { registerDiffsCommand } from "./commands/diffs";
 import type { ClientOptions } from "./api/client";
 
+/** Background poll cadence for the Sessions tree (visible-only, diff-only). */
+const SESSIONS_POLL_INTERVAL_MS = 15_000;
+
 let output: vscode.OutputChannel | undefined;
+let controller: EditorPanelController | undefined;
+let sessionsPoll: ReturnType<typeof setInterval> | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   output = vscode.window.createOutputChannel("Omnigent");
   context.subscriptions.push(output);
   output.appendLine("[omnigent] activating");
 
-  // ── Shared session state (A7/A8/A9 read this) ────────────────────────────
+  // ── Shared session state (read by send-selection / open-session / diffs) ──
   const sessionState = makeSessionState();
 
-  // ── A5/A6: WebviewView provider ──────────────────────────────────────────
-  const provider = new OmnigentViewProvider(context.extensionUri, output);
+  // ── Single editor-beside full-app surface ────────────────────────────────
+  controller = new EditorPanelController(context.extensionUri, output);
+  const editorPanel = controller;
+
+  // ── Sessions TreeView (activity-bar sidebar) ──────────────────────────────
+  const sessionsProvider = new SessionsTreeProvider(() => sessionState.clientOpts, output);
+  const treeView = vscode.window.createTreeView(SESSIONS_VIEW_ID, {
+    treeDataProvider: sessionsProvider,
+    showCollapseAll: false,
+  });
+  context.subscriptions.push(treeView);
+  registerSessionsTreeCommands(context, sessionsProvider, output);
+  registerOpenSessionFromTree(context, editorPanel, sessionState, output);
+
+  // Refresh when the view becomes visible (cheap, user-initiated).
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(VIEW_ID, provider, {
-      webviewOptions: { retainContextWhenHidden: true },
+    treeView.onDidChangeVisibility((e) => {
+      if (e.visible) void sessionsProvider.refresh();
     }),
   );
 
-  // ── A7: send-selection command ────────────────────────────────────────────
+  // Background poll — runs only while the tree is visible; diff-only (no flash).
+  sessionsPoll = setInterval(() => {
+    if (treeView.visible) void sessionsProvider.refresh({ quiet: true });
+  }, SESSIONS_POLL_INTERVAL_MS);
+
+  // ── send-selection command ────────────────────────────────────────────────
   registerSendSelection(
     context,
     () => sessionState.clientOpts,
@@ -51,13 +77,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output,
   );
 
-  // ── A8: open-session command + status bar ─────────────────────────────────
-  registerOpenSession(context, provider, sessionState, output);
+  // ── open-session command + status bar ─────────────────────────────────────
+  registerOpenSession(context, editorPanel, sessionState, output);
 
-  // ── A11: open-panel command (configurable right-side placement) ───────────
-  registerOpenPanel(context, provider, output);
+  // ── open-panel command (reveals the editor-beside full app) ───────────────
+  registerOpenPanel(context, editorPanel);
 
-  // ── A9: diffs command + SSE watch ─────────────────────────────────────────
+  // ── diffs command + SSE watch ─────────────────────────────────────────────
   const { stopSse: startSseWatch } = registerDiffsCommand(context, sessionState, output);
 
   // ── Foundation: resolve server + auth at activation ───────────────────────
@@ -74,14 +100,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const target = resolution.target;
       const { resolved } = await resolveToken(target.origin, settings.token || null);
 
-      // Build the client options used by all commands.
-      const clientOpts: ClientOptions = {
-        baseUrl: target.baseUrl,
-        token:
-          resolved.source === "manual" || resolved.source === "file"
-            ? (resolved as { token: string }).token
-            : undefined,
-      };
+      const token =
+        resolved.source === "manual" || resolved.source === "file"
+          ? (resolved as { token: string }).token
+          : undefined;
+
+      // Build the client options used by all commands + the sessions list.
+      const clientOpts: ClientOptions = { baseUrl: target.baseUrl, token };
       sessionState.clientOpts = clientOpts;
       sessionState.hostType = target.hostType;
 
@@ -93,19 +118,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             hostType: target.hostType,
             source: target.source,
             tokenSource: resolved.source,
-            token: redact(resolved.source === "manual" || resolved.source === "file" ? "present" : ""),
+            token: redact(token ? "present" : ""),
           }),
         )}`,
       );
 
-      // Post the init message so the webview knows what server to connect to.
-      // (The panel may not be visible yet; postMessage queues until resolveWebviewView.)
-      provider.init(target, resolved);
+      // Hand the resolved target/token to the editor-panel controller.
+      // If a panel was opened during this async window, setResolved re-renders it.
+      editorPanel.setResolved(target, token);
+
+      // Populate the sessions tree now that the server is known.
+      void sessionsProvider.refresh();
 
       // Start SSE watch if a session is already active (e.g. after reload).
       if (sessionState.sessionId) startSseWatch();
     } else {
       output.appendLine(`[omnigent] no server target (${resolution.reason}); configure omnigent.serverUrl`);
+      void sessionsProvider.refresh();
     }
   } catch (err) {
     output.appendLine(
@@ -117,6 +146,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): void {
+  if (sessionsPoll) {
+    clearInterval(sessionsPoll);
+    sessionsPoll = undefined;
+  }
+  controller?.dispose();
+  controller = undefined;
   output?.appendLine("[omnigent] deactivating");
   output = undefined;
 }
