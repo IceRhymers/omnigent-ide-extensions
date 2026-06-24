@@ -29,7 +29,7 @@
             id="Omnigent"
             anchor="right"
             secondary="false"
-            icon="AllIcons.Toolwindows.WebToolWindow"
+            icon="/icons/omnigent.svg"
             factoryClass="ai.omnigent.intellij.toolwindow.OmnigentToolWindowFactory"/>
 
         <!-- Persisted settings (server URL + optional token override). -->
