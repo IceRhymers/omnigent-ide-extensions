@@ -46,11 +46,11 @@ see at `http://127.0.0.1:6767`. This needs no separate web-app bundle.
 ## Build / test / package
 
 ```
-npm install
-npm run type-check   # tsc --noEmit
-npm run test         # vitest run
-npm run build        # esbuild -> dist/extension.js
-npx @vscode/vsce package   # -> omnigent-vscode-<version>.vsix   (or: make package-vscode)
+bun install
+bun run type-check   # tsc --noEmit
+bun run test         # vitest run
+bun run build        # esbuild -> dist/extension.js
+bunx --bun @vscode/vsce package   # -> omnigent-vscode-<version>.vsix   (or: make package-vscode)
 ```
 
 The `.vsix` runtime is `dist/extension.js` + `media/`. The default iframe render path is fully

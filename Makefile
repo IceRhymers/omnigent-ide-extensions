@@ -27,7 +27,7 @@ submodule: ## Init/update the omnigent submodule (source of the ap-web embed)
 
 .PHONY: install
 install: ## Install VS Code extension dependencies
-	cd $(VSCODE) && npm install --verbose
+	cd $(VSCODE) && bun install
 
 # ── build ─────────────────────────────────────────────────────────────────────
 .PHONY: build
@@ -35,7 +35,7 @@ build: build-vscode build-intellij ## Build both extensions
 
 .PHONY: build-vscode
 build-vscode: ## Build the VS Code extension (+ webview bootstrap)
-	cd $(VSCODE) && npm run build && npm run build:bootstrap
+	cd $(VSCODE) && bun run build && bun run build:bootstrap
 
 .PHONY: build-apweb
 build-apweb: ## Build the ap-web embed bundle from the submodule and vendor it into vscode/media/apweb
@@ -55,7 +55,7 @@ test: test-vscode test-intellij ## Run all tests
 
 .PHONY: test-vscode
 test-vscode: ## Run VS Code unit + integration tests (vitest)
-	cd $(VSCODE) && npm test
+	cd $(VSCODE) && bun run test
 
 .PHONY: test-intellij
 test-intellij: ## Run IntelliJ unit + conformance tests (Gradle)
@@ -63,7 +63,7 @@ test-intellij: ## Run IntelliJ unit + conformance tests (Gradle)
 
 .PHONY: typecheck
 typecheck: ## Type-check the VS Code extension
-	cd $(VSCODE) && npm run type-check
+	cd $(VSCODE) && bun run type-check
 
 # ── package ─────────────────────────────────────────────────────────────────
 .PHONY: package
@@ -71,7 +71,7 @@ package: package-vscode package-intellij ## Produce both installable artifacts
 
 .PHONY: package-vscode
 package-vscode: build-vscode ## Package the VS Code extension (.vsix)
-	cd $(VSCODE) && npx --yes @vscode/vsce package
+	cd $(VSCODE) && bunx --bun @vscode/vsce package
 
 .PHONY: package-intellij
 package-intellij: ## Package the IntelliJ plugin (.zip -> intellij/build/distributions/)
@@ -79,9 +79,9 @@ package-intellij: ## Package the IntelliJ plugin (.zip -> intellij/build/distrib
 
 # ── housekeeping ──────────────────────────────────────────────────────────────
 .PHONY: clean
-clean: ## Remove build outputs + npm lock file (keeps node_modules and the vendored ap-web bundle)
+clean: ## Remove build outputs + bun lock file (keeps node_modules and the vendored ap-web bundle)
 	rm -rf $(VSCODE)/dist $(VSCODE)/*.vsix
-	rm -f  $(VSCODE)/package-lock.json
+	rm -f  $(VSCODE)/bun.lock $(VSCODE)/bun.lockb
 	rm -f  $(VSCODE)/media/bootstrap/bootstrap.js $(VSCODE)/media/bootstrap/bootstrap.js.map
 	cd $(INTELLIJ) && $(GRADLEW) clean || true
 
