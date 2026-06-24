@@ -27,7 +27,7 @@ submodule: ## Init/update the omnigent submodule (source of the ap-web embed)
 
 .PHONY: install
 install: ## Install VS Code extension dependencies
-	cd $(VSCODE) && npm install
+	cd $(VSCODE) && npm install --verbose
 
 # ── build ─────────────────────────────────────────────────────────────────────
 .PHONY: build
@@ -79,8 +79,9 @@ package-intellij: ## Package the IntelliJ plugin (.zip -> intellij/build/distrib
 
 # ── housekeeping ──────────────────────────────────────────────────────────────
 .PHONY: clean
-clean: ## Remove build outputs (keeps node_modules and the vendored ap-web bundle)
+clean: ## Remove build outputs + npm lock file (keeps node_modules and the vendored ap-web bundle)
 	rm -rf $(VSCODE)/dist $(VSCODE)/*.vsix
+	rm -f  $(VSCODE)/package-lock.json
 	rm -f  $(VSCODE)/media/bootstrap/bootstrap.js $(VSCODE)/media/bootstrap/bootstrap.js.map
 	cd $(INTELLIJ) && $(GRADLEW) clean || true
 
