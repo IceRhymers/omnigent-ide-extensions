@@ -79,6 +79,18 @@ export function toItemView(s: Session, nowMs: number): SessionItemView {
   };
 }
 
+/**
+ * The quiet-poll diff signature: `state|id:updated_at:status,...` over the
+ * sessions in FETCHED order (not sorted/filtered). Absent `updated_at`/`status`
+ * render as the empty string. A quiet poll skips the tree update when the new
+ * signature equals the last, so an unchanged list never flashes the view.
+ */
+export function computeSignature(state: string, sessions: Session[]): string {
+  return `${state}|${sessions
+    .map((s) => `${s.id}:${s.updated_at ?? ""}:${s.status ?? ""}`)
+    .join(",")}`;
+}
+
 /** Copy and sort by `updated_at` descending, with id as a stable tiebreak. */
 export function sortSessions(list: Session[]): Session[] {
   return [...list].sort((a, b) => {

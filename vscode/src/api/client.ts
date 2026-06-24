@@ -201,7 +201,7 @@ export async function listSessionsPage(
 export async function listSessions(
   opts: ClientOptions,
   cap = 200,
-): Promise<ApiResponse<Session[]>> {
+): Promise<ApiResponse<{ sessions: Session[]; truncated: boolean }>> {
   const pages: SessionsPage[] = [];
   let after: string | undefined;
   let lastStatus = 200;
@@ -217,8 +217,10 @@ export async function listSessions(
     if (res.data.has_more !== true || !next || total >= cap) break;
     after = next;
   }
-  const { sessions } = accumulateSessions(pages, cap);
-  return { ok: true, status: lastStatus, data: sessions };
+  // Surface the accumulator's `truncated` rather than discarding it — the
+  // provider consumes this canonical flag instead of recomputing `size >= cap`.
+  const { sessions, truncated } = accumulateSessions(pages, cap);
+  return { ok: true, status: lastStatus, data: { sessions, truncated } };
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
