@@ -9,9 +9,11 @@ import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 // + unit tests run on a plain JUnit5 JVM without bootstrapping an IDE.
 
 plugins {
-    kotlin("jvm") version "1.9.24"
-    kotlin("plugin.serialization") version "1.9.24"
-    id("org.jetbrains.intellij.platform") version "2.1.0"
+    // Kotlin 2.2 to match the stdlib bundled by the 253 platform (its metadata
+    // version is 2.2.0; an older compiler cannot read it).
+    kotlin("jvm") version "2.2.0"
+    kotlin("plugin.serialization") version "2.2.0"
+    id("org.jetbrains.intellij.platform") version "2.16.0"
 }
 
 group = "ai.omnigent"
@@ -39,19 +41,19 @@ val platformVersion = providers.gradleProperty("platformVersion").getOrElse("202
 dependencies {
     // kotlinx.serialization for the shared conformance JSON vectors (kept
     // untouched; loaded identically to the TS suite).
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     intellijPlatform {
-        // Default target: IDEA Community 2024.1 (sinceBuild 241, JCEF-capable JBR).
+        // Target the 253 platform — see gradle.properties.
         // Switch platformType=PC (PyCharm Community) / PY (PyCharm Professional) /
         // IU (IDEA Ultimate) via gradle.properties to build/verify the other IDEs.
-        create(IntelliJPlatformType.fromCode(platformType), platformVersion)
-
-        // Java compiler used by the :instrumentCode task (form/nullability
-        // instrumentation). Required by the IntelliJ Platform Gradle Plugin v2
-        // even though our code is pure Kotlin; pulled from intellijDependencies()
-        // which defaultRepositories() includes.
-        instrumentationTools()
+        // useInstaller=false resolves the SDK artifact from the intellij-repository
+        // (maven layout) by build number, instead of a full IDE installer.
+        create {
+            type = IntelliJPlatformType.fromCode(platformType)
+            version = platformVersion
+            useInstaller = false
+        }
 
         // Bundled test framework (platform + JUnit4 harness IntelliJ ships).
         testFramework(TestFrameworkType.Platform)
