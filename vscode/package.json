@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "publisher": "omnigent-ai",
   "license": "SEE LICENSE IN LICENSE",
+  "icon": "media/omnigent-icon.png",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -69,7 +70,7 @@
         {
           "id": "omnigent-container",
           "title": "Omnigent",
-          "icon": "media/icon.svg"
+          "icon": "media/omnigent-icon.svg"
         }
       ]
     },
@@ -87,7 +88,7 @@
       {
         "command": "omnigent.open",
         "title": "Omnigent: Open",
-        "icon": "media/icon.svg"
+        "icon": "media/omnigent-icon.svg"
       },
       {
         "command": "omnigent.openSession",
