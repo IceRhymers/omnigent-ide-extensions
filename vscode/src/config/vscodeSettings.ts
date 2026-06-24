@@ -4,7 +4,7 @@
  * testable without an IDE host. Not exercised by unit tests (no vscode host).
  */
 import * as vscode from "vscode";
-import type { Settings, RenderMode, PanelLocation } from "./index";
+import type { Settings, RenderMode } from "./index";
 
 export function readSettings(): Settings {
   const cfg = vscode.workspace.getConfiguration("omnigent");
@@ -14,6 +14,5 @@ export function readSettings(): Settings {
     defaultAgentId: cfg.get<string>("defaultAgentId", ""),
     defaultAgentName: cfg.get<string>("defaultAgentName", ""),
     renderMode: cfg.get<RenderMode>("renderMode", "iframe"),
-    panelLocation: cfg.get<PanelLocation>("panelLocation", "editor"),
   };
 }

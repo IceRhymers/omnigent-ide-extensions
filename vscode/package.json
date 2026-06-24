@@ -47,21 +47,6 @@
           ],
           "default": "iframe",
           "markdownDescription": "How the Omnigent panel renders. `iframe` (default) loads the running local server; `embed` mounts the bundled SPA. The iframe path is used only for local servers; remote/unknown servers fall back to the embed path."
-        },
-        "omnigent.panelLocation": {
-          "type": "string",
-          "enum": [
-            "right",
-            "editor",
-            "left"
-          ],
-          "enumDescriptions": [
-            "Reveal the Omnigent panel in the right secondary side bar. NOTE: VS Code does not let an extension force this placement, so it is best-effort — the first time, drag the Omnigent view into the Secondary Side Bar (View → Appearance → Secondary Side Bar) and VS Code remembers it.",
-            "Open Omnigent as a webview pane beside the active editor (ViewColumn.Beside) — the same mechanism the Claude Code extension uses for its conversation pane. Reliable right-hand placement; this is the default.",
-            "Reveal the Omnigent panel in its activity-bar container on the left."
-          ],
-          "default": "editor",
-          "markdownDescription": "Where **Omnigent: Open** reveals the panel. `editor` (default) opens a webview pane beside your code (like the Claude Code conversation pane); `right` targets the secondary side bar (best-effort — VS Code remembers a one-time manual drag); `left` keeps the activity-bar view."
         }
       }
     },
@@ -77,10 +62,9 @@
     "views": {
       "omnigent-container": [
         {
-          "type": "webview",
-          "id": "omnigent.panel",
-          "name": "Omnigent",
-          "when": "true"
+          "type": "tree",
+          "id": "omnigent.sessions",
+          "name": "Sessions"
         }
       ]
     },
@@ -105,6 +89,33 @@
       {
         "command": "omnigent.applyDiffs",
         "title": "Omnigent: Apply Changed Files"
+      },
+      {
+        "command": "omnigent.sessions.refresh",
+        "title": "Omnigent: Refresh Sessions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "omnigent.sessions.filter",
+        "title": "Omnigent: Filter Sessions…",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "omnigent.sessions.toggleArchived",
+        "title": "Omnigent: Toggle Archived Sessions"
+      },
+      {
+        "command": "omnigent.sessions.filterCurrentFolder",
+        "title": "Omnigent: Filter Sessions to Current Folder"
+      },
+      {
+        "command": "omnigent.sessions.clearFilters",
+        "title": "Omnigent: Clear Session Filters",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "omnigent.openSessionFromTree",
+        "title": "Omnigent: Open Session (from tree)"
       }
     ],
     "menus": {
@@ -123,9 +134,34 @@
       ],
       "view/title": [
         {
-          "command": "omnigent.open",
-          "when": "view == omnigent.panel",
+          "command": "omnigent.sessions.refresh",
+          "when": "view == omnigent.sessions",
           "group": "navigation@1"
+        },
+        {
+          "command": "omnigent.sessions.filter",
+          "when": "view == omnigent.sessions",
+          "group": "navigation@2"
+        },
+        {
+          "command": "omnigent.openSession",
+          "when": "view == omnigent.sessions",
+          "group": "navigation@3"
+        },
+        {
+          "command": "omnigent.sessions.clearFilters",
+          "when": "view == omnigent.sessions && omnigent.filterActive",
+          "group": "1_filter@1"
+        },
+        {
+          "command": "omnigent.sessions.toggleArchived",
+          "when": "view == omnigent.sessions",
+          "group": "1_filter@2"
+        },
+        {
+          "command": "omnigent.sessions.filterCurrentFolder",
+          "when": "view == omnigent.sessions",
+          "group": "1_filter@3"
         }
       ],
       "commandPalette": [
@@ -143,6 +179,25 @@
         },
         {
           "command": "omnigent.applyDiffs"
+        },
+        {
+          "command": "omnigent.sessions.refresh"
+        },
+        {
+          "command": "omnigent.sessions.filter"
+        },
+        {
+          "command": "omnigent.sessions.toggleArchived"
+        },
+        {
+          "command": "omnigent.sessions.filterCurrentFolder"
+        },
+        {
+          "command": "omnigent.sessions.clearFilters"
+        },
+        {
+          "command": "omnigent.openSessionFromTree",
+          "when": "false"
         }
       ]
     }

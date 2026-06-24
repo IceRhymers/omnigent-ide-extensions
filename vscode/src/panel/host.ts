@@ -1,10 +1,10 @@
 /**
- * Shared render helper for the Omnigent panel hosts.
+ * Shared render helper for the Omnigent editor panel.
  *
- * Both the activity-bar `WebviewView` (OmnigentViewProvider) and the editor-beside
- * `WebviewPanel` (omnigent.open → ViewColumn.Beside) render identical UI. This
- * module factors that logic into a single `renderInto(webview, opts)` so the two
- * hosts never drift.
+ * The full Omnigent app renders in the editor-beside `WebviewPanel`
+ * (EditorPanelController → ViewColumn.Beside). This module factors the render
+ * logic into a single `renderInto(webview, opts)` so the controller and any
+ * future host stay in lockstep.
  *
  * Render decision (token-security ADR):
  *  - `iframe` (default) is used ONLY for LOCAL servers — a local server needs no
@@ -86,9 +86,10 @@ function renderIframe(
     nonce,
     cspSource: webview.cspSource,
   });
-  const serverUrl =
-    route && route !== "/" ? `${target.baseUrl.replace(/\/$/, "")}${route}` : target.baseUrl;
-  webview.html = buildIframeHtml({ serverUrl, csp, nonce });
+  // Pass the BARE base + route separately: buildIframeHtml bakes the route into
+  // the initial src AND keeps the bare base for its navigate shim, so a later
+  // `omnigent/navigate` post does not double the path (`/c/x/c/x`).
+  webview.html = buildIframeHtml({ baseUrl: target.baseUrl, route, csp, nonce });
   log?.(`[omnigent] iframe rendered (origin=${target.origin}, route=${route}, nonce=${nonce.slice(0, 8)}...)`);
 }
 

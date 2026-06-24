@@ -13,7 +13,8 @@
  *   GET  /v1/sessions/{id}/resources/files         — list changed files
  *   GET  /v1/sessions/{id}/resources/files/{fid}/content
  *   GET  /v1/sessions/{id}/resources/environments/{env}/diff/{path}
- *   GET  /api/agents
+ *   GET  /v1/agents
+ *   GET  /v1/sessions                              — list sessions (cursor-paginated)
  */
 import { mapHttpStatus } from "../auth/httpStatus";
 
@@ -96,10 +97,46 @@ export async function listAgents(opts: ClientOptions): Promise<ApiResponse<Agent
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
 
+/**
+ * A session as returned by `GET /v1/sessions` (pinned from a live capture).
+ * Timestamps are unix SECONDS; `title`/`workspace`/`git_branch` are OPTIONAL and
+ * absent on some sessions; `archived` is a BOOLEAN (not a status value).
+ */
 export interface Session {
   id: string;
-  status?: string;
+  agent_id?: string;
+  agent_name?: string;
+  status?: string; // open string enum: "running" | "idle" | ...
+  created_at?: number; // unix SECONDS
+  updated_at?: number; // unix SECONDS
+  title?: string;
+  labels?: Record<string, string>;
+  runner_id?: string;
+  host_id?: string;
+  permission_level?: number;
+  owner?: string;
+  external_session_id?: string;
+  pending_elicitations_count?: number;
+  workspace?: string; // abs path
+  git_branch?: string;
+  archived?: boolean;
+  comments_count?: number;
   [key: string]: unknown;
+}
+
+/** One page of the OpenAI-style cursor-paginated `GET /v1/sessions` response. */
+export interface SessionsPage {
+  object: "list";
+  data: Session[];
+  first_id?: string | null;
+  last_id?: string | null;
+  has_more?: boolean;
+}
+
+/** Query options for a single `GET /v1/sessions` page. */
+export interface ListSessionsOptions {
+  limit?: number;
+  after?: string;
 }
 
 /**
@@ -119,6 +156,69 @@ export async function createSession(
 
 export async function getSession(opts: ClientOptions, id: string): Promise<ApiResponse<Session>> {
   return apiFetch<Session>(opts, `/v1/sessions/${id}`);
+}
+
+/**
+ * Pure: concatenate page `data` in order, stopping once `cap` sessions are reached.
+ * `truncated` is true when the final consumed page still reports `has_more` AND the
+ * accumulated total reached the cap (i.e. there is more on the server we did not fetch).
+ */
+export function accumulateSessions(
+  pages: SessionsPage[],
+  cap: number,
+): { sessions: Session[]; truncated: boolean } {
+  const sessions: Session[] = [];
+  let lastHasMore = false;
+  for (const page of pages) {
+    lastHasMore = page.has_more === true;
+    for (const s of page.data) {
+      if (sessions.length >= cap) break;
+      sessions.push(s);
+    }
+    if (sessions.length >= cap) break;
+  }
+  const truncated = lastHasMore && sessions.length >= cap;
+  return { sessions, truncated };
+}
+
+/** Fetch a single page of sessions. `limit`/`after` are omitted when undefined. */
+export async function listSessionsPage(
+  opts: ClientOptions,
+  page: ListSessionsOptions = {},
+): Promise<ApiResponse<SessionsPage>> {
+  const params = new URLSearchParams();
+  if (page.limit !== undefined) params.set("limit", String(page.limit));
+  if (page.after !== undefined) params.set("after", page.after);
+  const query = params.toString();
+  return apiFetch<SessionsPage>(opts, `/v1/sessions${query ? `?${query}` : ""}`);
+}
+
+/**
+ * List sessions, following the `after = last_id` cursor while `has_more` is true and
+ * the accumulated total is below `cap`. Non-ok responses (esp. 401/403) propagate as-is
+ * without throwing so callers can map them to the unauthorized/error states.
+ */
+export async function listSessions(
+  opts: ClientOptions,
+  cap = 200,
+): Promise<ApiResponse<Session[]>> {
+  const pages: SessionsPage[] = [];
+  let after: string | undefined;
+  let lastStatus = 200;
+  while (true) {
+    const res = await listSessionsPage(opts, { after });
+    if (!res.ok || !res.data) {
+      return { ok: res.ok, status: res.status, error: res.error };
+    }
+    lastStatus = res.status;
+    pages.push(res.data);
+    const total = pages.reduce((n, p) => n + p.data.length, 0);
+    const next = res.data.last_id ?? undefined;
+    if (res.data.has_more !== true || !next || total >= cap) break;
+    after = next;
+  }
+  const { sessions } = accumulateSessions(pages, cap);
+  return { ok: true, status: lastStatus, data: sessions };
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────

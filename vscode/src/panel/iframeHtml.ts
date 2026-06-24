@@ -16,8 +16,14 @@
  */
 
 export interface BuildIframeHtmlOptions {
-  /** Resolved server base URL (e.g. "http://127.0.0.1:6767"). Loaded as the iframe src. */
-  serverUrl: string;
+  /**
+   * Bare server base URL (e.g. "http://127.0.0.1:6767"), WITHOUT any route.
+   * Used by the navigate shim to build `base + route`, so it must never already
+   * contain a route — otherwise navigation doubles the path (`/c/x/c/x`).
+   */
+  baseUrl: string;
+  /** Initial route to load (e.g. "/" or "/c/<id>"). Appended to baseUrl for the iframe src. */
+  route?: string;
   /** The CSP string (from buildCsp) — its frame-src must allow the server origin. */
   csp: string;
   /** Nonce stamped on the inline <style> and the shim <script>. */
@@ -25,8 +31,10 @@ export interface BuildIframeHtmlOptions {
 }
 
 export function buildIframeHtml(opts: BuildIframeHtmlOptions): string {
-  const { serverUrl, csp, nonce } = opts;
-  const src = serverUrl.replace(/\/$/, "");
+  const { baseUrl, route, csp, nonce } = opts;
+  // Bare base drives the navigate shim; the initial src may carry the route.
+  const base = baseUrl.replace(/\/$/, "");
+  const src = route && route !== "/" ? `${base}${route}` : base;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -43,18 +51,31 @@ export function buildIframeHtml(opts: BuildIframeHtmlOptions): string {
 </head>
 <body>
   <div id="root">
-    <iframe id="omnigent-frame" src="${escapeAttr(src)}" style="border:0;width:100%;height:100%"></iframe>
+    <!--
+      allow=clipboard-* delegates the Clipboard API to the framed app, enabling its
+      programmatic copy/paste (copy buttons, navigator.clipboard paths) and keystroke
+      clipboard on non-macOS.
+      KNOWN LIMITATION: on macOS, VS Code does not deliver Cmd+A/C/V keystrokes into a
+      cross-origin iframe inside a webview, so keyboard paste into the app's inputs does
+      not work there. This is an unresolved upstream VS Code bug, not fixable from the
+      extension for the iframe render path — see microsoft/vscode#129178 and #182642.
+      A same-origin embed render path would not have this limitation.
+    -->
+    <iframe id="omnigent-frame" src="${escapeAttr(src)}" allow="clipboard-read; clipboard-write" style="border:0;width:100%;height:100%"></iframe>
   </div>
   <script nonce="${nonce}">
     (function () {
-      var serverUrl = ${JSON.stringify(src)};
+      // Bare base (no route) — the navigate handler appends the route to THIS.
+      var baseUrl = ${JSON.stringify(base)};
       var vscode = acquireVsCodeApi();
       window.addEventListener("message", function (event) {
         var msg = event.data;
         if (msg && msg.type === "omnigent/navigate" && typeof msg.route === "string") {
           var frame = document.getElementById("omnigent-frame");
           if (frame) {
-            frame.src = serverUrl.replace(/\\/$/, "") + msg.route;
+            var next = baseUrl.replace(/\\/$/, "") + msg.route;
+            // Avoid a redundant reload when already at the target URL.
+            if (frame.src !== next) frame.src = next;
           }
         }
       });
