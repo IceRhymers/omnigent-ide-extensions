@@ -55,12 +55,12 @@
             "left"
           ],
           "enumDescriptions": [
-            "Reveal the Omnigent panel docked on the right (best-effort move to the secondary side bar; VS Code remembers your placement afterwards).",
-            "Open Omnigent in an editor tab beside the active editor (the guaranteed always-right option).",
-            "Reveal the Omnigent panel in its activity-bar container on the left (today's default placement)."
+            "Reveal the Omnigent panel in the right secondary side bar. NOTE: VS Code does not let an extension force this placement, so it is best-effort — the first time, drag the Omnigent view into the Secondary Side Bar (View → Appearance → Secondary Side Bar) and VS Code remembers it.",
+            "Open Omnigent as a webview pane beside the active editor (ViewColumn.Beside) — the same mechanism the Claude Code extension uses for its conversation pane. Reliable right-hand placement; this is the default.",
+            "Reveal the Omnigent panel in its activity-bar container on the left."
           ],
-          "default": "right",
-          "markdownDescription": "Where **Omnigent: Open** reveals the panel. `right` (default) docks to the secondary side bar; `editor` opens a beside-editor tab (most reliable for a right-hand pane); `left` keeps the activity-bar view."
+          "default": "editor",
+          "markdownDescription": "Where **Omnigent: Open** reveals the panel. `editor` (default) opens a webview pane beside your code (like the Claude Code conversation pane); `right` targets the secondary side bar (best-effort — VS Code remembers a one-time manual drag); `left` keeps the activity-bar view."
         }
       }
     },

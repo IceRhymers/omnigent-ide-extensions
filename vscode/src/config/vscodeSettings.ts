@@ -14,6 +14,6 @@ export function readSettings(): Settings {
     defaultAgentId: cfg.get<string>("defaultAgentId", ""),
     defaultAgentName: cfg.get<string>("defaultAgentName", ""),
     renderMode: cfg.get<RenderMode>("renderMode", "iframe"),
-    panelLocation: cfg.get<PanelLocation>("panelLocation", "right"),
+    panelLocation: cfg.get<PanelLocation>("panelLocation", "editor"),
   };
 }

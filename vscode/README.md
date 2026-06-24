@@ -17,9 +17,13 @@ see at `http://127.0.0.1:6767`. This needs no separate web-app bundle.
 
 - Command **“Omnigent: Open”** (`omnigent.open`) or the rocket button on the panel title bar.
 - `omnigent.panelLocation` controls where it opens:
-  - `"right"` (default) — docked panel; on first open it best-effort moves to the secondary side
-    bar (VS Code remembers where you place it), à la the Claude Code panel.
-  - `"editor"` — opens as a webview **beside the editor** (`ViewColumn.Beside`) — always on the right.
+  - `"editor"` (default) — opens as a webview pane **beside the editor** (`ViewColumn.Beside`).
+    This is the same mechanism the Claude Code extension uses for its conversation pane, so it
+    lands reliably on the right.
+  - `"right"` — targets the right **secondary side bar**. VS Code does not let an extension force
+    this placement, so it is best-effort: the first time, enable the secondary side bar
+    (View → Appearance → Secondary Side Bar, `⌥⌘B`) and drag the Omnigent view into it — VS Code
+    then remembers it permanently.
   - `"left"` — the activity-bar sidebar (original location).
 
 ## Sessions
@@ -35,7 +39,7 @@ see at `http://127.0.0.1:6767`. This needs no separate web-app bundle.
 | `omnigent.serverUrl` | `""` | Manual server URL override; empty = auto-discover local. |
 | `omnigent.token` | `""` | Optional bearer override (prefer the CLI token file). |
 | `omnigent.renderMode` | `iframe` | `iframe` (default) or `embed`. |
-| `omnigent.panelLocation` | `right` | `right` \| `editor` \| `left`. |
+| `omnigent.panelLocation` | `editor` | `editor` (beside editor, like Claude Code) \| `right` (secondary side bar, best-effort) \| `left`. |
 | `omnigent.defaultAgentId` | `""` | Skip the agent picker on session create. |
 | `omnigent.defaultAgentName` | `""` | Agent name fallback when no id is set. |
 
