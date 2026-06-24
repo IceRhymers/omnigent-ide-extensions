@@ -75,11 +75,15 @@ dependencies {
 intellijPlatform {
     pluginConfiguration {
         version = project.version.toString()
-        // sinceBuild/untilBuild are driven from gradle.properties (untilBuild
-        // is intentionally OMITTED — see gradle.properties reach-over-safety note).
+        // sinceBuild is pinned from gradle.properties. untilBuild must be set to
+        // null EXPLICITLY for an open upper bound: the IntelliJ Platform Gradle
+        // Plugin v2 otherwise auto-derives untilBuild as "<branch>.*" of the build
+        // platform (e.g. 241.*), which wrongly blocks newer IDEs (PY/IC 253+).
+        // The plugin uses only stable APIs (tool window, JCEF, actions), so an
+        // open upper bound is the intended reach-over-safety choice.
         ideaVersion {
             sinceBuild = providers.gradleProperty("sinceBuild").getOrElse("241")
-            // untilBuild deliberately left unset (open upper bound).
+            untilBuild = provider { null }
         }
     }
 }
