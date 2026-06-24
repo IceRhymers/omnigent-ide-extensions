@@ -83,7 +83,14 @@ clean: ## Remove build outputs + bun lock file (keeps node_modules and the vendo
 	rm -rf $(VSCODE)/dist $(VSCODE)/*.vsix
 	rm -f  $(VSCODE)/bun.lock $(VSCODE)/bun.lockb
 	rm -f  $(VSCODE)/media/bootstrap/bootstrap.js $(VSCODE)/media/bootstrap/bootstrap.js.map
-	cd $(INTELLIJ) && $(GRADLEW) clean || true
+	# Remove the IntelliJ build output AND the per-project Gradle state directly
+	# (no `gradlew clean`, which would need network to resolve plugins just to
+	# delete a folder). .gradle/ and .intellijPlatform/ hold the dependency
+	# resolution cache + .lock files, which can pin artifacts to a specific
+	# registry/proxy host — stale when switching work environments. Wiping them
+	# forces a clean re-resolution against the current ~/.gradle init-script
+	# mirror. The mirror URL itself is never tracked in this repo.
+	rm -rf $(INTELLIJ)/build $(INTELLIJ)/.gradle $(INTELLIJ)/.intellijPlatform
 
 .PHONY: clean-all
 clean-all: clean ## Also remove node_modules and the vendored ap-web bundle

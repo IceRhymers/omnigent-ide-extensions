@@ -30,7 +30,22 @@ repositories {
         mavenCentral()
     }
     intellijPlatform {
-        defaultRepositories()
+        // NOT defaultRepositories(): that adds the JetBrains Marketplace repo
+        // (cache-redirector -> plugins.jetbrains.com), which is unreachable in
+        // proxied/sandboxed environments. A connection-refused while listing
+        // versions there is FATAL and aborts resolution before the reachable
+        // intellij-repository is tried — breaking both buildPlugin (when
+        // instrumentation is on) and `test`'s test-framework resolution.
+        // This plugin has no third-party Marketplace plugin dependencies, so we
+        // enumerate the platform repositories WITHOUT marketplace(). The
+        // platform SDK, test-framework, and instrumentation tools all resolve
+        // from intellij-repository releases/snapshots + intellij-dependencies,
+        // which are reachable via cache-redirector.
+        localPlatformArtifacts()
+        releases()
+        snapshots()
+        intellijDependencies()
+        jetbrainsRuntime()
     }
 }
 
@@ -70,11 +85,26 @@ dependencies {
     // registers a JUnit Platform LauncherSessionListener
     // (com.intellij.tests.JUnit5TestSessionListener) that references
     // junit.framework.TestCase; without it the Gradle test executor fails to
-    // start (NoClassDefFoundError: junit/framework/TestCase).
-    testRuntimeOnly("junit:junit:4.13.2")
+    // start (NoClassDefFoundError: junit/framework/TestCase). On the COMPILE
+    // classpath too (not just runtime) so BasePlatformTestCase's JUnit3/4
+    // `TestCase` supertype + assert* helpers resolve for the Phase 3 platform test.
+    testImplementation("junit:junit:4.13.2")
+    // BasePlatformTestCase is JUnit3/4-based; under useJUnitPlatform() it is only
+    // DISCOVERED via the JUnit4 vintage engine. Pinned to the junit-bom (5.10.2)
+    // so the engine version tracks the jupiter version. Without this the Phase 3
+    // SessionsServiceTest (a BasePlatformTestCase) would never be collected/run.
+    testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
 }
 
 intellijPlatform {
+    // This is a pure-Kotlin plugin: no Java sources and no .form GUI files, so
+    // there is nothing for the IntelliJ code instrumenter to do (@NotNull
+    // bytecode instrumentation + .form compilation are Java-only). Disabling it
+    // also drops the com.jetbrains.intellij.java:java-compiler-ant-tasks
+    // dependency, which is only resolvable from the JetBrains Marketplace
+    // (plugins.jetbrains.com) — unreachable in proxied/sandboxed environments.
+    instrumentCode = false
+
     pluginConfiguration {
         version = project.version.toString()
         // sinceBuild is pinned from gradle.properties. untilBuild must be set to
