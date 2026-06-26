@@ -1,5 +1,9 @@
 # omnigent-vscode
 
+> ⚠️ **Unofficial & experimental.** This is a community-built, unofficial extension and is not
+> affiliated with, endorsed by, or supported by Omnigent. It is experimental software provided
+> as-is — expect rough edges, breaking changes, and incomplete features. Use at your own risk.
+
 VS Code extension that brings **Omnigent** into the editor: an Omnigent panel plus native editor
 commands (open/switch session, send selection, view/apply diffs).
 
