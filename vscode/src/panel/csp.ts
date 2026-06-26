@@ -80,7 +80,11 @@ export function buildCsp(opts: BuildCspOptions): string {
   const imgSrc = cspSource
     ? `${cspSource} data: https:`
     : `data: https:`;
-  const fontSrc = cspSource ? cspSource : `'none'`;
+  // font-src must allow data: — the embed bundle inlines its (icon) fonts as
+  // data:font/woff URIs, so a cspSource-only font-src blocks them under the
+  // strict webview CSP. The vscode-resource scheme stays allowed for any
+  // file-backed fonts shipped under media/.
+  const fontSrc = cspSource ? `${cspSource} data:` : `data:`;
 
   // worker-src: Monaco spawns workers from blob: URLs; also needs cspSource for
   // workers loaded from the extension's own media/ directory.
