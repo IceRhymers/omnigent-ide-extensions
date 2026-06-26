@@ -1,5 +1,9 @@
 # Omnigent IntelliJ / PyCharm plugin (Phase B)
 
+> ⚠️ **Unofficial & experimental.** This is a community-built, unofficial plugin and is not
+> affiliated with, endorsed by, or supported by Omnigent. It is experimental software provided
+> as-is — expect rough edges, breaking changes, and incomplete features. Use at your own risk.
+
 JVM/Kotlin port of the VS Code extension. Embeds the Omnigent web UI in a JCEF
 tool window pointed at a configurable server target, plus three native editor
 actions (send selection, open/switch session, view/apply diffs).
