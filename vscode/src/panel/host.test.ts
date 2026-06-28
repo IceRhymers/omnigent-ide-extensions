@@ -2,7 +2,8 @@
  * Unit tests for the pure helpers in panel/host.ts (render decision + placeholder).
  */
 import { describe, it, expect } from "vitest";
-import { shouldUseIframe, renderResolvingHtml } from "./host";
+import * as vscode from "vscode";
+import { shouldUseIframe, renderResolvingHtml, renderInto } from "./host";
 import type { ServerTarget } from "../config";
 
 function target(hostType: ServerTarget["hostType"]): ServerTarget {
@@ -35,5 +36,33 @@ describe("renderResolvingHtml", () => {
     expect(html).toContain("Content-Security-Policy");
     expect(html).toContain("Resolving Omnigent server");
     expect(html).not.toContain("<script");
+  });
+});
+
+describe("renderInto (embed asset URIs)", () => {
+  // Fake webview: asWebviewUri is identity (Uri mock carries a toString), so the
+  // emitted href is the joined media/ path — enough to assert the relative layout.
+  function fakeWebview() {
+    return {
+      html: "",
+      asWebviewUri: (uri: { toString(): string }) => uri,
+      postMessage: () => true,
+      cspSource: "vscode-resource:",
+    };
+  }
+
+  it("points the stylesheet at the dist-embed root, NOT assets/ (regression: 404 unstyled mount)", () => {
+    const webview = fakeWebview();
+    renderInto(webview as unknown as vscode.Webview, {
+      target: target("remote"),
+      extensionUri: vscode.Uri.parse("/ext") as unknown as vscode.Uri,
+      renderMode: "embed",
+      isDarkMode: true,
+    });
+    expect(webview.html).toContain("apweb/omnigent-embed.css");
+    expect(webview.html).not.toContain("apweb/assets/omnigent-embed.css");
+    // The entry + vendor bundles resolve to their real on-disk locations too.
+    expect(webview.html).toContain("apweb/omnigent-embed.js");
+    expect(webview.html).toContain("apweb/vendor/react.js");
   });
 });

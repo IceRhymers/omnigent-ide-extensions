@@ -61,6 +61,15 @@ describe("buildCsp (PM2 guard)", () => {
     expect(csp).toContain("wss://omnigent.example.com");
   });
 
+  it("connect-src includes cspSource so the webview can fetch its own resources (dev sourcemaps)", () => {
+    const csp = buildCsp({ ...base, cspSource: "vscode-webview-resource:" });
+    const connectDirective = csp.split(";").find((d) => d.trim().startsWith("connect-src")) ?? "";
+    expect(connectDirective).toContain("vscode-webview-resource:");
+    // still includes the server + ws origins
+    expect(connectDirective).toContain("https://omnigent.example.com");
+    expect(connectDirective).toContain("wss://omnigent.example.com");
+  });
+
   it("connect-src includes additional managed-sandbox WS origin (R9)", () => {
     const csp = buildCsp({
       ...base,

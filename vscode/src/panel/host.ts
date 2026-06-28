@@ -127,7 +127,11 @@ function renderEmbed(
     omnigentEmbed: mediaUri("apweb", "omnigent-embed.js"),
   };
 
-  const cssUri = mediaUri("apweb", "assets", "omnigent-embed.css");
+  // The ap-web Vite embed build emits the stylesheet at the dist-embed ROOT
+  // (`omnigent-embed.css`), NOT under assets/ — vite.embed.config.ts routes
+  // `*.css` to the top level and only non-CSS assets (the Monaco worker) to
+  // assets/. Pointing at assets/ 404s and the SPA renders unstyled.
+  const cssUri = mediaUri("apweb", "omnigent-embed.css");
   const bootstrapUri = mediaUri("bootstrap", "bootstrap.js");
 
   webview.html = buildWebviewHtml({ csp, nonce, bootstrapUri, cssUri, importMap, isDarkMode });
