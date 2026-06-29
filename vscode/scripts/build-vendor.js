@@ -100,6 +100,27 @@ function externalRequireBanner(external) {
   return `${imports}\nvar require = (id) => { ${cases} throw new Error("vendor require: unexpected " + id); };`;
 }
 
+/**
+ * Externalize ONLY exact specifiers, never their subpaths. esbuild's built-in
+ * `external: ["react-dom"]` also externalizes `react-dom/client` — which, for the
+ * react-dom-client bundle whose ENTRY *is* `react-dom/client`, makes it import
+ * itself (the import-map resolves `react-dom/client` back to this file →
+ * circular self-import → default is undefined). This plugin externalizes the
+ * exact package ids (so they resolve to the single shared instance via the
+ * import-map) while letting subpaths like `react-dom/client` be bundled.
+ */
+function exactExternalPlugin(specifiers) {
+  const set = new Set(specifiers);
+  return {
+    name: "exact-external",
+    setup(build) {
+      build.onResolve({ filter: /^[^.]/ }, (args) =>
+        set.has(args.path) ? { path: args.path, external: true } : null,
+      );
+    },
+  };
+}
+
 /** esbuild options for a CJS package -> static-named-export ESM bundle. */
 function cjsBundle({ name, specifier, external = [] }) {
   const banner = externalRequireBanner(external);
@@ -112,7 +133,9 @@ function cjsBundle({ name, specifier, external = [] }) {
       sourcefile: `${name}-vendor-entry.js`,
     },
     outfile: path.join(outDir, `${name}.js`),
-    external,
+    // Exact-match externals only (see exactExternalPlugin); do NOT use esbuild's
+    // `external` option here, which would also externalize subpaths.
+    plugins: [exactExternalPlugin(external)],
     ...(banner ? { banner: { js: banner } } : {}),
   };
 }
