@@ -64,19 +64,42 @@ const builds = [
     outfile: path.join(outDir, "jsx-runtime.js"),
     external: ["react"],
   },
-  // react-router
+  // react-router — resolve the ESM build via mainFields/conditions instead of the
+  // CJS main that require.resolve() returns. Pointing esbuild at the absolute CJS
+  // file bypasses mainFields and produced a bundle whose ONLY export was
+  // `export default require_main()` — no named exports — so
+  // `import { MemoryRouter } from "react-router(-dom)"` threw at runtime. A stdin
+  // `export *` entry lets esbuild resolve the package's ESM build and emit real
+  // named exports.
   {
     ...common,
-    entryPoints: [require.resolve("react-router")],
+    stdin: {
+      contents: `export * from "react-router";`,
+      resolveDir: root,
+      loader: "js",
+      sourcefile: "react-router-vendor-entry.js",
+    },
     outfile: path.join(outDir, "react-router.js"),
     external: ["react", "react-dom"],
+    mainFields: ["module", "browser", "main"],
+    conditions: ["import", "module", "browser", "default"],
   },
-  // react-router-dom
+  // react-router-dom — same ESM-resolution fix. Its ESM build does
+  // `export * from "react-router"`, kept external here so the import-map dedupes
+  // to the single react-router instance; the browser forwards the core names
+  // (MemoryRouter, useNavigate, Routes, Link, …) through to vendor/react-router.js.
   {
     ...common,
-    entryPoints: [require.resolve("react-router-dom")],
+    stdin: {
+      contents: `export * from "react-router-dom";`,
+      resolveDir: root,
+      loader: "js",
+      sourcefile: "react-router-dom-vendor-entry.js",
+    },
     outfile: path.join(outDir, "react-router-dom.js"),
     external: ["react", "react-dom", "react-router"],
+    mainFields: ["module", "browser", "main"],
+    conditions: ["import", "module", "browser", "default"],
   },
 ];
 
