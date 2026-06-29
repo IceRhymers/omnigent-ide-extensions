@@ -13,6 +13,30 @@
  * These files are generated artifacts → kept under media/apweb/ (gitignored).
  * Pinned versions: react/react-dom 18.3.1, react-router/react-router-dom 6.30.4.
  *
+ * ── Why this is not just `entryPoints: [require.resolve(pkg)]` ────────────────
+ * The webview loads these bundles as separate ESM files and the embed/bootstrap
+ * import NAMED bindings from them (`import { useState } from "react"`,
+ * `import { createRoot } from "react-dom/client"`, `import { jsx } from
+ * "react/jsx-runtime"`, …). Those bindings are resolved by the browser at LINK
+ * time, so each bundle must expose real STATIC named exports.
+ *
+ * Two gotchas, two strategies:
+ *  1. CJS-only packages (react, react-dom, react-dom/client, react/jsx-runtime):
+ *     bundling the CJS entry yields a default-only bundle (`export default …`)
+ *     because CJS export names aren't statically knowable, and `export *` from
+ *     CJS produces RUNTIME re-exports, not the static bindings the browser needs.
+ *     Fix: read the package's actual export keys via `require()` at build time
+ *     and generate explicit `export const <name> = _m[<name>]` bindings. This is
+ *     drift-proof (no hand-maintained name list) and bulletproof (every real key
+ *     becomes a static export).
+ *  2. react-router / react-router-dom ship a real ESM build, so a stdin
+ *     `export * from "<pkg>"` resolved via mainFields/conditions forwards their
+ *     static named exports directly. `require.resolve()` would instead pin the
+ *     CJS main and reintroduce gotcha #1.
+ *
+ * react stays external wherever a downstream package needs it so the import-map
+ * dedupes everything to a SINGLE react / react-dom / react-router instance.
+ *
  * Usage:
  *   node scripts/build-vendor.js [--production]
  */
@@ -35,72 +59,101 @@ const common = {
   define: { "process.env.NODE_ENV": '"production"' },
 };
 
+/**
+ * Build a stdin entry that re-exports a CJS package as real STATIC named exports.
+ * Reads the package's actual export keys at build time (so the list can never
+ * drift from the installed version) and emits `export const <key> = _m[<key>]`
+ * for each valid-identifier key, plus the default (the module.exports object).
+ */
+function cjsNamedExportEntry(specifier) {
+  const mod = require(specifier);
+  const keys = Object.keys(mod).filter(
+    (k) => k !== "default" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k),
+  );
+  return [
+    `import _m from ${JSON.stringify(specifier)};`,
+    `export default _m;`,
+    ...keys.map((k) => `export const ${k} = _m[${JSON.stringify(k)}];`),
+  ].join("\n");
+}
+
+/**
+ * Banner that resolves external `require(...)` calls left inside esbuild's lazy
+ * __commonJS wrappers. Large CJS deps (notably react-dom) call require("react")
+ * inside a deferred wrapper; with react external + ESM output, esbuild can't
+ * hoist it to a top-level import and emits a throwing __require shim
+ * (`Dynamic require of "react" is not supported`) that breaks in Node AND the
+ * browser. esbuild's __require delegates to a `require` in scope when one exists,
+ * so we declare a MODULE-SCOPED require() returning the real ESM-imported
+ * external namespace (import-map resolved → the single shared react/react-dom
+ * instance). No globals. (ap-web's vite.embed.config solves the same problem for
+ * its rspack output via the resolveExternalCjsRequire plugin.)
+ */
+function externalRequireBanner(external) {
+  if (external.length === 0) return undefined;
+  const imports = external
+    .map((id, i) => `import * as __ext${i} from ${JSON.stringify(id)};`)
+    .join("\n");
+  const cases = external
+    .map((id, i) => `if (id === ${JSON.stringify(id)}) return __ext${i}.default ?? __ext${i};`)
+    .join(" ");
+  return `${imports}\nvar require = (id) => { ${cases} throw new Error("vendor require: unexpected " + id); };`;
+}
+
+/** esbuild options for a CJS package -> static-named-export ESM bundle. */
+function cjsBundle({ name, specifier, external = [] }) {
+  const banner = externalRequireBanner(external);
+  return {
+    ...common,
+    stdin: {
+      contents: cjsNamedExportEntry(specifier),
+      resolveDir: root,
+      loader: "js",
+      sourcefile: `${name}-vendor-entry.js`,
+    },
+    outfile: path.join(outDir, `${name}.js`),
+    external,
+    ...(banner ? { banner: { js: banner } } : {}),
+  };
+}
+
+/** esbuild options for an ESM package -> forwarded `export *` bundle. */
+function esmReexport({ name, specifier, external = [] }) {
+  return {
+    ...common,
+    stdin: {
+      contents: `export * from ${JSON.stringify(specifier)};`,
+      resolveDir: root,
+      loader: "js",
+      sourcefile: `${name}-vendor-entry.js`,
+    },
+    outfile: path.join(outDir, `${name}.js`),
+    external,
+    // Resolve the package's ESM build, NOT the CJS main require.resolve() returns.
+    mainFields: ["module", "browser", "main"],
+    conditions: ["import", "module", "browser", "default"],
+  };
+}
+
 /** @type {Array<import('esbuild').BuildOptions>} */
 const builds = [
-  // react — fully self-contained (no externals)
-  {
-    ...common,
-    entryPoints: [require.resolve("react")],
-    outfile: path.join(outDir, "react.js"),
-  },
-  // react-dom — marks react external (resolved via import map at runtime)
-  {
-    ...common,
-    entryPoints: [require.resolve("react-dom")],
-    outfile: path.join(outDir, "react-dom.js"),
-    external: ["react"],
-  },
-  // react-dom/client — same external treatment
-  {
-    ...common,
-    entryPoints: [require.resolve("react-dom/client")],
-    outfile: path.join(outDir, "react-dom-client.js"),
+  // CJS-only packages: explicit static named exports from real runtime keys.
+  cjsBundle({ name: "react", specifier: "react" }), // self-contained (no externals)
+  cjsBundle({ name: "react-dom", specifier: "react-dom", external: ["react"] }),
+  cjsBundle({
+    name: "react-dom-client",
+    specifier: "react-dom/client",
     external: ["react", "react-dom"],
-  },
-  // react/jsx-runtime
-  {
-    ...common,
-    entryPoints: [require.resolve("react/jsx-runtime")],
-    outfile: path.join(outDir, "jsx-runtime.js"),
-    external: ["react"],
-  },
-  // react-router — resolve the ESM build via mainFields/conditions instead of the
-  // CJS main that require.resolve() returns. Pointing esbuild at the absolute CJS
-  // file bypasses mainFields and produced a bundle whose ONLY export was
-  // `export default require_main()` — no named exports — so
-  // `import { MemoryRouter } from "react-router(-dom)"` threw at runtime. A stdin
-  // `export *` entry lets esbuild resolve the package's ESM build and emit real
-  // named exports.
-  {
-    ...common,
-    stdin: {
-      contents: `export * from "react-router";`,
-      resolveDir: root,
-      loader: "js",
-      sourcefile: "react-router-vendor-entry.js",
-    },
-    outfile: path.join(outDir, "react-router.js"),
-    external: ["react", "react-dom"],
-    mainFields: ["module", "browser", "main"],
-    conditions: ["import", "module", "browser", "default"],
-  },
-  // react-router-dom — same ESM-resolution fix. Its ESM build does
-  // `export * from "react-router"`, kept external here so the import-map dedupes
-  // to the single react-router instance; the browser forwards the core names
-  // (MemoryRouter, useNavigate, Routes, Link, …) through to vendor/react-router.js.
-  {
-    ...common,
-    stdin: {
-      contents: `export * from "react-router-dom";`,
-      resolveDir: root,
-      loader: "js",
-      sourcefile: "react-router-dom-vendor-entry.js",
-    },
-    outfile: path.join(outDir, "react-router-dom.js"),
+  }),
+  cjsBundle({ name: "jsx-runtime", specifier: "react/jsx-runtime", external: ["react"] }),
+  // ESM packages: forward their static named exports; keep react-router external
+  // for react-router-dom so the import-map dedupes to one react-router instance.
+  esmReexport({ name: "react-router", specifier: "react-router", external: ["react", "react-dom"] }),
+  esmReexport({
+    name: "react-router-dom",
+    specifier: "react-router-dom",
     external: ["react", "react-dom", "react-router"],
-    mainFields: ["module", "browser", "main"],
-    conditions: ["import", "module", "browser", "default"],
-  },
+  }),
 ];
 
 async function main() {
