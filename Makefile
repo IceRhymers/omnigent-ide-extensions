@@ -34,8 +34,8 @@ install: ## Install VS Code extension dependencies
 build: build-vscode build-intellij ## Build both extensions
 
 .PHONY: build-vscode
-build-vscode: ## Build the VS Code extension (+ webview bootstrap)
-	cd $(VSCODE) && bun run build && bun run build:bootstrap
+build-vscode: ## Build the VS Code extension (host bundle + React vendor + webview bootstrap)
+	cd $(VSCODE) && bun run build && bun run build:vendor && bun run build:bootstrap
 
 .PHONY: build-apweb
 build-apweb: ## Build the ap-web embed bundle from the submodule and vendor it into vscode/media/apweb
@@ -44,6 +44,11 @@ build-apweb: ## Build the ap-web embed bundle from the submodule and vendor it i
 	cp -R $(APWEB)/dist-embed/. $(VSCODE)/media/apweb/
 	@echo "Vendored ap-web embed -> $(VSCODE)/media/apweb/ (entry: omnigent-embed.js)."
 	@echo "Remember to record the submodule SHA in $(VSCODE)/apweb-pin.json."
+
+.PHONY: embed
+embed: build-apweb ## Build the full same-origin embed render path (ap-web bundle + React vendor + bootstrap) — required for native copy/paste
+	cd $(VSCODE) && bun run build:vendor && bun run build:bootstrap
+	@echo "Embed render path built. Set \"omnigent.renderMode\": \"embed\" in VS Code settings to use it (the default is \"iframe\")."
 
 .PHONY: build-intellij
 build-intellij: ## Build the IntelliJ/PyCharm plugin zip

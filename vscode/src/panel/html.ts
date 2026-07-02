@@ -25,7 +25,7 @@ export interface BuildHtmlOptions {
   nonce: string;
   /** URI of the bundled bootstrap script (webview-resource URI in production). */
   bootstrapUri: string;
-  /** URI of the ap-web CSS file (media/apweb/assets/*.css). */
+  /** URI of the ap-web CSS file (media/apweb/omnigent-embed.css — dist-embed root, not assets/). */
   cssUri: string;
   /** Import-map entries: bare specifier -> WebviewURI string. */
   importMap: ImportMapUris;

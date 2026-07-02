@@ -67,11 +67,18 @@ export function buildCsp(opts: BuildCspOptions): string {
     ? `'nonce-${nonce}' ${cspSource} 'unsafe-inline'`
     : `'nonce-${nonce}' 'unsafe-inline'`;
 
-  // connect-src: server API origin + ws:/wss: for each WS origin
+  // connect-src: server API origin + ws:/wss: for each WS origin + the webview
+  // resource scheme. cspSource is needed so the webview can fetch its OWN
+  // bundled resources over the connect channel — in particular the dev sourcemap
+  // (`*.js.map`) fetches DevTools issues for bootstrap.js / the vendor bundles,
+  // which are served from the vscode-cdn resource origin and were otherwise
+  // blocked. Harmless for the app (it talks to the server origin); only widens
+  // connect-src to the extension's own already-allowlisted resources.
   const wsAllowlist = wsOrigins.join(" ");
   const connectSrc = [
     serverOrigin,
     wsAllowlist,
+    cspSource ?? "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -80,7 +87,11 @@ export function buildCsp(opts: BuildCspOptions): string {
   const imgSrc = cspSource
     ? `${cspSource} data: https:`
     : `data: https:`;
-  const fontSrc = cspSource ? cspSource : `'none'`;
+  // font-src must allow data: — the embed bundle inlines its (icon) fonts as
+  // data:font/woff URIs, so a cspSource-only font-src blocks them under the
+  // strict webview CSP. The vscode-resource scheme stays allowed for any
+  // file-backed fonts shipped under media/.
+  const fontSrc = cspSource ? `${cspSource} data:` : `data:`;
 
   // worker-src: Monaco spawns workers from blob: URLs; also needs cspSource for
   // workers loaded from the extension's own media/ directory.

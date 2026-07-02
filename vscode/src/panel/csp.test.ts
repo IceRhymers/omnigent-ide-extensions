@@ -61,6 +61,15 @@ describe("buildCsp (PM2 guard)", () => {
     expect(csp).toContain("wss://omnigent.example.com");
   });
 
+  it("connect-src includes cspSource so the webview can fetch its own resources (dev sourcemaps)", () => {
+    const csp = buildCsp({ ...base, cspSource: "vscode-webview-resource:" });
+    const connectDirective = csp.split(";").find((d) => d.trim().startsWith("connect-src")) ?? "";
+    expect(connectDirective).toContain("vscode-webview-resource:");
+    // still includes the server + ws origins
+    expect(connectDirective).toContain("https://omnigent.example.com");
+    expect(connectDirective).toContain("wss://omnigent.example.com");
+  });
+
   it("connect-src includes additional managed-sandbox WS origin (R9)", () => {
     const csp = buildCsp({
       ...base,
@@ -103,5 +112,22 @@ describe("buildCsp (PM2 guard)", () => {
     const imgDirective = csp.split(";").find((d) => d.trim().startsWith("img-src")) ?? "";
     expect(imgDirective).toContain("https:");
     expect(imgDirective).toContain("data:");
+  });
+
+  it("font-src includes data: for the embed's inlined fonts", () => {
+    // The ap-web embed bundle ships its (icon) fonts as data:font/woff URIs;
+    // font-src must allow data: or the strict webview CSP blocks them.
+    const withSource = buildCsp({ ...base, cspSource: "vscode-webview-resource:" });
+    const fontDirective =
+      withSource.split(";").find((d) => d.trim().startsWith("font-src")) ?? "";
+    expect(fontDirective).toContain("data:");
+    expect(fontDirective).toContain("vscode-webview-resource:");
+
+    // Even without a cspSource (test/headless), data: must be present.
+    const withoutSource = buildCsp(base);
+    const bareFontDirective =
+      withoutSource.split(";").find((d) => d.trim().startsWith("font-src")) ?? "";
+    expect(bareFontDirective).toContain("data:");
+    expect(bareFontDirective).not.toContain("'none'");
   });
 });

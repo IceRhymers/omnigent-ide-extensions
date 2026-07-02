@@ -1,89 +1,108 @@
 # Building the ap-web Embed Bundle
 
-The Omnigent VS Code extension embeds the `ap-web` SPA via `OmnigentApp` (Option B). The bundle
-(`media/apweb/omnigent-app.js`) is **not checked into this repo** — it is an external build input
-produced from the `omnigent` monorepo's `ap-web` package.
+The Omnigent VS Code extension can render the full `ap-web` SPA **same-origin** inside the
+webview (`renderMode: "embed"`) by mounting `OmnigentApp` from a vendored bundle. This is the
+path that makes native **copy / paste** work — the default `iframe` render mode hosts the server
+in a cross-origin iframe, which on macOS does not receive Cmd+C/V keystrokes (upstream VS Code
+bug microsoft/vscode#129178, #182642).
 
-## Prerequisites
+The bundle (`media/apweb/omnigent-embed.js` + `chunks/` + `assets/` + `omnigent-embed.css`) is a
+**build artifact** produced from the `omnigent` monorepo's `ap-web` package. It is **not checked
+into this repo** (it is gitignored) — it is reproduced from the pinned submodule.
 
-- Access to `github.com/omnigent-ai/omnigent` (the omnigent monorepo)
-- Node ≥18, npm ≥9
+## Quick path (recommended)
 
-## Steps
+From the repo root:
 
 ```sh
-# 1. Clone (or pull) the omnigent monorepo
-git clone https://github.com/omnigent-ai/omnigent /tmp/omnigent
-cd /tmp/omnigent
-
-# 2. Record the SHA you are pinning (load-bearing — this IS the artifact's behavior)
-git rev-parse HEAD   # e.g. abc1234...
-
-# 3. Install ap-web dependencies
-cd ap-web
-npm install
-
-# 4. Build the embed bundle
-#    ap-web ships a vite.embed.config.ts that produces the embed-only build.
-npx vite build --config vite.embed.config.ts
-
-# 5. Copy the artifact into this repo
-cp dist-embed/omnigent-app.js \
-   /path/to/omnigent-ide-extensions/vscode/media/apweb/omnigent-app.js
-
-# 6. Record the SHA + version in apweb-pin.json
-#    Also pin the React + react-router-dom versions ap-web was built with.
+make submodule   # init/sync third_party/omnigent at the pinned SHA
+make embed        # build ap-web embed + React vendor bundles + webview bootstrap
 ```
 
-## Updating apweb-pin.json
+`make embed` runs the three steps below and leaves everything under `vscode/media/apweb/` and
+`vscode/media/bootstrap/`. Then set `"omnigent.renderMode": "embed"` in VS Code settings.
 
-After copying the bundle, update `vscode/apweb-pin.json`:
+## What `make embed` does
+
+### 1. Build the ap-web embed bundle (from the submodule)
+
+```sh
+cd third_party/omnigent/ap-web
+npm install
+npm run build:embed     # vite build --config vite.embed.config.ts -> dist-embed/
+```
+
+This emits an ESM intermediate:
+
+- `dist-embed/omnigent-embed.js` — the entry (exports `OmnigentApp`, `setOmnigentHostConfig`)
+- `dist-embed/omnigent-embed.css` — one scoped stylesheet (every selector prefixed `.omnigent-app`)
+- `dist-embed/chunks/*.js` — code-split chunks (Monaco, shiki grammars, mermaid, … stay lazy)
+- `dist-embed/assets/*` — the Monaco editor worker + any wasm
+
+React / ReactDOM / react/jsx-runtime / react-router(-dom) are left as **bare externals** — the
+host supplies them. (See the header comment in `vite.embed.config.ts`.)
+
+The bundle is then copied into `vscode/media/apweb/`:
+
+```sh
+cp -R third_party/omnigent/ap-web/dist-embed/. vscode/media/apweb/
+```
+
+The dynamic `import("./chunks/*")` and the Monaco worker are **relative**, so they resolve to
+webview-resource URIs under `media/apweb/` — the extension already lists `media/apweb`,
+`media/apweb/chunks`, and `media/apweb/assets` in `localResourceRoots` (see
+`src/panel/host.ts: embedLocalResourceRoots`). No second bundler is involved; the raw Vite
+intermediate is loaded directly.
+
+> **Note:** This intermediate is normally re-ingested by the monolith's rspack. Loading it
+> directly in a webview works for the chat surface; Monaco/xterm workers are deferred (lazy) and
+> may need follow-up CSP/worker work.
+
+### 2. Build the React vendor bundles
+
+```sh
+cd vscode && npm run build:vendor    # scripts/build-vendor.js -> media/apweb/vendor/*.js
+```
+
+These are the `react`, `react-dom`, `react-dom/client`, `react/jsx-runtime`, `react-router`, and
+`react-router-dom` bundles the webview import-map resolves the embed's bare externals to. They
+must match the versions in `apweb-pin.json` so the embed and bootstrap share **one** React +
+react-router instance.
+
+### 3. Build the webview bootstrap
+
+```sh
+cd vscode && npm run build:bootstrap  # scripts/build-bootstrap.js -> media/bootstrap/bootstrap.js
+```
+
+The bootstrap (`media/bootstrap/bootstrap.ts`) receives the `omnigent/init` handshake
+(server URL + token + route), installs the host fetcher (token stays in a closure — never in a
+URL), then dynamically `import("omnigent-embed")` and mounts `<MemoryRouter><OmnigentApp/></…>`.
+
+## Updating `apweb-pin.json`
+
+The submodule SHA IS the artifact's behavior, so pin it. After re-syncing the submodule:
 
 ```json
 {
   "apweb": {
     "repo": "github.com/omnigent-ai/omnigent",
-    "buildSha": "<the git SHA from step 2>",
-    "version": "<package.json version from ap-web/package.json>"
+    "buildSha": "<git rev-parse HEAD in third_party/omnigent>",
+    "version": "<git describe / ap-web package.json version>",
+    "entry": "omnigent-embed.js"
   },
   "externals": {
-    "react": "<version from ap-web/package.json>",
-    "react-dom": "<version from ap-web/package.json>",
-    "react-router-dom": "<version from ap-web/package.json>"
+    "react": "<version ap-web built against>",
+    "react-dom": "<…>",
+    "react-router": "<…>",
+    "react-router-dom": "<…>"
   }
 }
 ```
 
-## Why the bundle is not checked in
-
-- It is a build artifact (large binary-ish JS).
-- The bundled ap-web build SHA/version IS this artifact's behavior (R10); pinning the SHA in
-  `apweb-pin.json` + README makes the coupling explicit and auditable.
-- On a server API bump, re-pin + re-test AC5 (event-class rendering).
-
 ## Dev fallback
 
-If `media/apweb/omnigent-app.js` is absent, the webview bootstrap renders a
-human-readable placeholder explaining the situation. The extension still activates,
-type-checks, and tests pass — the `npm run type-check` and `npm test` steps do NOT
-require the bundle.
-
-## React / react-router-dom externals
-
-The `ap-web` embed build (`embed.tsx`) externalizes `react`, `react-dom`, and
-`react-router-dom` as bare externals — the HOST (this bootstrap) must provide
-React 18 + react-router-dom 6.4.x at runtime. The bootstrap build
-(`scripts/build-bootstrap.js`) bundles these into `media/bootstrap/bootstrap.js`.
-
-Install the peer packages before running the bootstrap build:
-
-```sh
-cd vscode
-npm install --save-dev react@18 react-dom@18 react-router-dom@6
-```
-
-Then rebuild the bootstrap:
-
-```sh
-node scripts/build-bootstrap.js
-```
+If `media/apweb/omnigent-embed.js` is absent, the webview bootstrap renders a human-readable
+placeholder explaining how to build it (see `media/bootstrap/bootstrap.ts: renderPlaceholder`).
+The extension still activates, type-checks, and tests pass — `type-check` and `test` do **not**
+require the bundle, and the default `iframe` render mode does not need it either.

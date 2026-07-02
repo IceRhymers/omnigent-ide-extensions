@@ -82,6 +82,24 @@ export async function apiFetch<T>(
   return { ok: false, status: res.status, error: outcome };
 }
 
+/**
+ * Pure: unwrap an OpenAI-style list body to a plain array.
+ *
+ * Several /v1 list endpoints (`/v1/agents`, `/v1/sessions/{id}/resources/files`,
+ * `/v1/sessions`) return `{ object: "list", data: [...], has_more, … }` rather
+ * than a bare JSON array (confirmed against the server: it does
+ * `resp.json().get("data", [])`). Returns `raw` as-is when it is already an array
+ * (defensive / future-proof), the `.data` array when present, else `[]` — so
+ * callers can treat "no list" as empty instead of crashing on `.map` / `for..of`.
+ */
+export function unwrapListData<T>(raw: unknown): T[] {
+  if (Array.isArray(raw)) return raw as T[];
+  if (raw && typeof raw === "object" && Array.isArray((raw as { data?: unknown }).data)) {
+    return (raw as { data: T[] }).data;
+  }
+  return [];
+}
+
 // ── Agents ─────────────────────────────────────────────────────────────────────
 
 export interface Agent {
@@ -90,9 +108,15 @@ export interface Agent {
   description?: string;
 }
 
-/** List the agents available on the server. Required to create a session (agent_id). */
+/**
+ * List the agents available on the server. Required to create a session (agent_id).
+ * `GET /v1/agents` returns an OpenAI-style `{ object: "list", data: [...] }` body,
+ * so unwrap it to a plain `Agent[]` (the agent picker maps over this).
+ */
 export async function listAgents(opts: ClientOptions): Promise<ApiResponse<Agent[]>> {
-  return apiFetch<Agent[]>(opts, "/v1/agents");
+  const res = await apiFetch<unknown>(opts, "/v1/agents");
+  if (!res.ok) return { ok: false, status: res.status, error: res.error };
+  return { ok: true, status: res.status, data: unwrapListData<Agent>(res.data) };
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
@@ -264,11 +288,19 @@ export interface ChangedFile {
   [key: string]: unknown;
 }
 
+/**
+ * List a session's changed files. Like `/v1/agents`, the route returns an
+ * OpenAI-style `{ object: "list", data: [...] }` body, so unwrap it to a plain
+ * `ChangedFile[]` (the diffs command iterates this with `for..of`).
+ * NOTE: single page only (server default limit 20); pagination is a follow-up.
+ */
 export async function listChangedFiles(
   opts: ClientOptions,
   sessionId: string,
 ): Promise<ApiResponse<ChangedFile[]>> {
-  return apiFetch<ChangedFile[]>(opts, `/v1/sessions/${sessionId}/resources/files`);
+  const res = await apiFetch<unknown>(opts, `/v1/sessions/${sessionId}/resources/files`);
+  if (!res.ok) return { ok: false, status: res.status, error: res.error };
+  return { ok: true, status: res.status, data: unwrapListData<ChangedFile>(res.data) };
 }
 
 export interface DiffResult {

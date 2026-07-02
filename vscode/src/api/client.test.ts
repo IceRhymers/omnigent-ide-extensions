@@ -7,6 +7,8 @@ import {
   parseSseChunk,
   createSession,
   listAgents,
+  listChangedFiles,
+  unwrapListData,
   accumulateSessions,
   listSessions,
   listSessionsPage,
@@ -93,8 +95,28 @@ describe("createSession", () => {
   });
 });
 
+describe("unwrapListData", () => {
+  it("returns a bare array as-is", () => {
+    expect(unwrapListData([{ id: "a" }])).toEqual([{ id: "a" }]);
+  });
+  it("unwraps an OpenAI-style { object: 'list', data: [] } body", () => {
+    expect(unwrapListData({ object: "list", data: [{ id: "a" }], has_more: false })).toEqual([
+      { id: "a" },
+    ]);
+  });
+  it("returns [] for a wrapper whose data is missing or not an array", () => {
+    expect(unwrapListData({ object: "list" })).toEqual([]);
+    expect(unwrapListData({ data: "nope" })).toEqual([]);
+  });
+  it("returns [] for null / non-object bodies", () => {
+    expect(unwrapListData(null)).toEqual([]);
+    expect(unwrapListData(undefined)).toEqual([]);
+    expect(unwrapListData("string")).toEqual([]);
+  });
+});
+
 describe("listAgents", () => {
-  it("GETs /v1/agents and returns the agent list", async () => {
+  it("GETs /v1/agents and returns the agent list (bare array, defensive)", async () => {
     const agents = [
       { id: "ag_1", name: "Coder", description: "writes code" },
       { id: "ag_2", name: "Reviewer" },
@@ -104,6 +126,48 @@ describe("listAgents", () => {
     expect(res.ok).toBe(true);
     expect(res.data).toEqual(agents);
     expect(calls[0].url).toBe("http://127.0.0.1:6767/v1/agents");
+  });
+
+  it("unwraps the OpenAI-style { object:'list', data:[] } body (the real server shape)", async () => {
+    const agents = [{ id: "ag_1", name: "Coder" }];
+    // Regression: this body previously reached agentPickItems as an object →
+    // `agents.map is not a function`. listAgents must hand back a plain array.
+    const { opts } = stubFetch(200, { object: "list", data: agents, has_more: false });
+    const res = await listAgents(opts);
+    expect(res.ok).toBe(true);
+    expect(Array.isArray(res.data)).toBe(true);
+    expect(res.data).toEqual(agents);
+  });
+
+  it("yields [] (not a crash) when the body has no data array", async () => {
+    const { opts } = stubFetch(200, { object: "list" });
+    const res = await listAgents(opts);
+    expect(res.ok).toBe(true);
+    expect(res.data).toEqual([]);
+  });
+
+  it("propagates a non-ok response without a data array", async () => {
+    const { opts } = stubFetch(401, {});
+    const res = await listAgents(opts);
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("listChangedFiles", () => {
+  it("unwraps the { object:'list', data:[] } body to a ChangedFile[]", async () => {
+    const files = [
+      { file_id: "f1", relative_path: "src/a.ts" },
+      { file_id: "f2", relative_path: "src/b.ts" },
+    ];
+    // Regression: this body previously reached `for (const f of files)` as an
+    // object → "files is not iterable".
+    const { opts, calls } = stubFetch(200, { object: "list", data: files, has_more: false });
+    const res = await listChangedFiles(opts, "conv_1");
+    expect(res.ok).toBe(true);
+    expect(Array.isArray(res.data)).toBe(true);
+    expect(res.data).toEqual(files);
+    expect(calls[0].url).toBe("http://127.0.0.1:6767/v1/sessions/conv_1/resources/files");
   });
 });
 
