@@ -1,40 +1,44 @@
 /**
- * Iframe host HTML for the Omnigent WebviewView (default `iframe` render mode).
+ * Iframe host HTML for the Omnigent editor panel.
  *
- * Instead of mounting the embed bundle, the webview hosts a single <iframe>
- * pointed at the running Omnigent server (gated to LOCAL servers — a local
- * server needs no auth, so no token ever appears in the iframe URL; see the
- * token-security ADR).
- *
- * buildIframeHtml() is a PURE function (no vscode API) so it is unit-testable.
- * The page carries:
+ * The webview hosts a single static <iframe> pointed at the running LOCAL
+ * Omnigent server — a local server needs no auth, so no token ever appears in
+ * the iframe URL (see csp.ts). buildIframeHtml() is a PURE function (no vscode
+ * API) so it is unit-testable. The page carries:
  *  1. A strict nonce-based CSP whose `frame-src` allows the server origin.
- *  2. A nonce'd <style> making html/body/#root and the iframe fill 100%, no border.
- *  3. The <iframe src="${serverUrl}"> filling the pane.
- *  4. A tiny nonce'd shim that calls acquireVsCodeApi() and relays
- *     `omnigent/navigate` messages by setting `iframe.src = serverUrl + route`.
+ *  2. A nonce'd <style> making html/body/#root and the iframe fill 100%.
+ *  3. The <iframe src="${baseUrl}"> filling the pane.
+ *
+ * KNOWN LIMITATION: on macOS, VS Code does not deliver Cmd+A/C/V keystrokes into
+ * a cross-origin iframe inside a webview, so keyboard paste into the app's inputs
+ * does not work there. This is an unresolved upstream VS Code bug, not fixable
+ * from the extension for the iframe render path — see microsoft/vscode#129178 and
+ * microsoft/vscode#182642.
  */
 
 export interface BuildIframeHtmlOptions {
-  /**
-   * Bare server base URL (e.g. "http://127.0.0.1:6767"), WITHOUT any route.
-   * Used by the navigate shim to build `base + route`, so it must never already
-   * contain a route — otherwise navigation doubles the path (`/c/x/c/x`).
-   */
+  /** Server base URL (e.g. "http://127.0.0.1:6767"). A trailing slash is stripped. */
   baseUrl: string;
-  /** Initial route to load (e.g. "/" or "/c/<id>"). Appended to baseUrl for the iframe src. */
-  route?: string;
+  /** An app route such as `/c/<session-id>`; defaults to the app's home screen. */
+  path?: string;
   /** The CSP string (from buildCsp) — its frame-src must allow the server origin. */
   csp: string;
-  /** Nonce stamped on the inline <style> and the shim <script>. */
+  /** Nonce stamped on the inline <style>. */
   nonce: string;
 }
 
+/** Join an app route to the framed base URL without crossing origins. */
+export function appUrl(baseUrl: string, path = "/"): string {
+  if (!path.startsWith("/") || path.startsWith("//")) {
+    throw new Error(`refusing to navigate to a non-app path: ${path}`);
+  }
+  const base = baseUrl.replace(/\/+$/, "");
+  return path === "/" ? base : `${base}${path}`;
+}
+
 export function buildIframeHtml(opts: BuildIframeHtmlOptions): string {
-  const { baseUrl, route, csp, nonce } = opts;
-  // Bare base drives the navigate shim; the initial src may carry the route.
-  const base = baseUrl.replace(/\/$/, "");
-  const src = route && route !== "/" ? `${base}${route}` : base;
+  const { baseUrl, csp, nonce } = opts;
+  const src = appUrl(baseUrl, opts.path);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -54,33 +58,11 @@ export function buildIframeHtml(opts: BuildIframeHtmlOptions): string {
     <!--
       allow=clipboard-* delegates the Clipboard API to the framed app, enabling its
       programmatic copy/paste (copy buttons, navigator.clipboard paths) and keystroke
-      clipboard on non-macOS.
-      KNOWN LIMITATION: on macOS, VS Code does not deliver Cmd+A/C/V keystrokes into a
-      cross-origin iframe inside a webview, so keyboard paste into the app's inputs does
-      not work there. This is an unresolved upstream VS Code bug, not fixable from the
-      extension for the iframe render path — see microsoft/vscode#129178 and #182642.
-      A same-origin embed render path would not have this limitation.
+      clipboard on non-macOS. See the macOS keystroke limitation noted above the
+      buildIframeHtml docblock (microsoft/vscode#129178, #182642).
     -->
     <iframe id="omnigent-frame" src="${escapeAttr(src)}" allow="clipboard-read; clipboard-write" style="border:0;width:100%;height:100%"></iframe>
   </div>
-  <script nonce="${nonce}">
-    (function () {
-      // Bare base (no route) — the navigate handler appends the route to THIS.
-      var baseUrl = ${JSON.stringify(base)};
-      var vscode = acquireVsCodeApi();
-      window.addEventListener("message", function (event) {
-        var msg = event.data;
-        if (msg && msg.type === "omnigent/navigate" && typeof msg.route === "string") {
-          var frame = document.getElementById("omnigent-frame");
-          if (frame) {
-            var next = baseUrl.replace(/\\/$/, "") + msg.route;
-            // Avoid a redundant reload when already at the target URL.
-            if (frame.src !== next) frame.src = next;
-          }
-        }
-      });
-    })();
-  </script>
 </body>
 </html>`;
 }

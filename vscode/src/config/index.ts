@@ -1,36 +1,34 @@
 /**
- * Config + server-target + host-type resolution (A2, contract §4).
+ * Config + server-target + host-type resolution.
  *
  * Resolution order: manual override (serverUrl set) > auto-discovered local >
- * (caller prompts). All decision logic is pure and isolated from the VS Code
- * API behind the `Settings` interface so it is unit-testable without an IDE
- * host. The thin VS Code adapter lives in vscodeSettings.ts.
+ * (caller prompts). A loopback override or discovered server resolves to a
+ * direct target; a remote https override resolves to `remote`, which the
+ * caller connects through the local credential proxy (servers/connection.ts).
+ * All decision logic is pure and isolated from the VS Code API behind the
+ * `Settings` interface so it is unit-testable without an IDE host. The thin
+ * VS Code adapter lives in vscodeSettings.ts.
  */
 import type { HealthOutcome } from "../discovery";
+import { remoteServerKind, type RemoteServerKind } from "../servers/classify";
 
 export type HostType = "local" | "remote" | "unknown";
 
-/** How the panel renders the Omnigent UI. `iframe` hosts the running server; `embed` mounts the bundle. */
-export type RenderMode = "iframe" | "embed";
-
 export interface ServerTarget {
+  /** URL the panel iframe loads (for a remote server, the local proxy's entry URL). */
   baseUrl: string;
+  /** Origin the panel frames; always loopback. */
   origin: string;
   hostType: HostType;
-  /** Where the target came from, for redacted diagnostics. */
+  /** Where the target came from, for diagnostics. */
   source: "manual" | "discovered";
+  /** The remote server the panel shows, for display. */
+  displayUrl?: string;
 }
 
 /** Thin, stubbable settings surface (isolates the vscode API). */
 export interface Settings {
   serverUrl: string;
-  token: string;
-  /** Preferred agent id for session creation; skips the agent picker when set. */
-  defaultAgentId: string;
-  /** Human-readable name of the preferred agent (informational; resolved to id). */
-  defaultAgentName: string;
-  /** Panel render mode: `iframe` (default) hosts the running server; `embed` mounts the bundle. */
-  renderMode: RenderMode;
 }
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
@@ -75,6 +73,50 @@ export function discoveredTarget(baseUrl: string): ServerTarget {
   };
 }
 
+export type ServerUrlCheck =
+  | { ok: true; url: string; hostType: "local" | "remote" }
+  | { ok: false; reason: "empty" | "invalid-url" | "insecure-remote" };
+
+/**
+ * Normalize a user-entered server URL. Pure.
+ *
+ * A missing scheme defaults to http:// for loopback hosts and https://
+ * otherwise. Query, fragment, and trailing slashes are dropped; a path is kept
+ * so servers mounted under a subpath work. Remote servers must use https.
+ */
+export function checkServerUrl(raw: string): ServerUrlCheck {
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return { ok: false, reason: "empty" };
+  }
+  let url: URL;
+  try {
+    url = new URL(trimmed.includes("://") ? trimmed : `${defaultSchemeFor(trimmed)}://${trimmed}`);
+  } catch {
+    return { ok: false, reason: "invalid-url" };
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username !== "" ||
+    url.password !== ""
+  ) {
+    return { ok: false, reason: "invalid-url" };
+  }
+  const hostType = LOOPBACK_HOSTS.has(url.hostname) ? "local" : "remote";
+  if (hostType === "remote" && url.protocol !== "https:") {
+    return { ok: false, reason: "insecure-remote" };
+  }
+  return { ok: true, url: `${url.origin}${url.pathname.replace(/\/+$/, "")}`, hostType };
+}
+
+function defaultSchemeFor(schemeless: string): "http" | "https" {
+  try {
+    return LOOPBACK_HOSTS.has(new URL(`https://${schemeless}`).hostname) ? "http" : "https";
+  } catch {
+    return "https";
+  }
+}
+
 /** The discovery summary the resolver needs (kept abstract for testability). */
 export interface DiscoverySummary {
   found: boolean;
@@ -84,11 +126,17 @@ export interface DiscoverySummary {
 
 export type TargetResolution =
   | { status: "resolved"; target: ServerTarget }
-  | { status: "needs-prompt"; reason: "no-manual-no-local" | "local-unhealthy" };
+  | { status: "remote"; serverUrl: string; kind: RemoteServerKind }
+  | {
+      status: "needs-prompt";
+      reason: "no-manual-no-local" | "local-unhealthy" | "invalid-url" | "insecure-remote";
+    };
 
 /**
  * Resolve a server target purely from settings + a discovery summary.
- *  1. manual override (serverUrl non-empty) wins
+ *  1. manual override (serverUrl non-empty) wins: a loopback URL resolves
+ *     directly, a remote https URL resolves to `remote`, and a malformed or
+ *     plain-http remote URL needs a prompt.
  *  2. else auto-discovered local with health === 'ok'
  *  3. else needs-prompt
  */
@@ -96,8 +144,19 @@ export function resolveServerTarget(
   settings: Pick<Settings, "serverUrl">,
   discovery: DiscoverySummary,
 ): TargetResolution {
-  if (settings.serverUrl && settings.serverUrl.trim() !== "") {
-    return { status: "resolved", target: manualTarget(settings.serverUrl.trim()) };
+  const manual = settings.serverUrl?.trim() ?? "";
+  if (manual !== "") {
+    const checked = checkServerUrl(manual);
+    if (!checked.ok) {
+      return {
+        status: "needs-prompt",
+        reason: checked.reason === "insecure-remote" ? "insecure-remote" : "invalid-url",
+      };
+    }
+    if (checked.hostType === "local") {
+      return { status: "resolved", target: manualTarget(checked.url) };
+    }
+    return { status: "remote", serverUrl: checked.url, kind: remoteServerKind(checked.url) };
   }
   if (discovery.found && discovery.baseUrl) {
     if (discovery.health === "ok") {

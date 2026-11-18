@@ -14,6 +14,14 @@ the prose that explains them. Keep vectors free of language specifics.
 > config/target resolution, auth/token, and the long-lived auth lifecycle *interface*. It does not
 > cover the webview panel, command flows, or bundling (A5–A10).
 
+> **VS Code status.** The VS Code extension now follows upstream's model instead of
+> §§3–6: it frames a local server directly and reaches a remote one through a loopback
+> credential proxy, with its own browser sign-in, CLI-session reuse and secret storage
+> (see [`vscode/README.md`](../vscode/README.md)). It has no `omnigent.token` setting.
+> It still runs the §1–§2 vectors (`pidfile.json`, `health.json`) in
+> `vscode/src/discovery/conformance.test.ts`. The rest of this document, and all of
+> `docs/conformance/`, still applies to the IntelliJ plugin.
+
 ---
 
 ## 1. Local-server discovery: pidfile format & parse rules

@@ -1,9 +1,10 @@
 /**
- * Minimal vscode API stub for vitest unit/integration tests.
+ * Minimal vscode API stub for vitest unit tests.
  * Only the symbols actually imported by the modules under test need to be here.
- * The pure logic (csp, html, messages, api/client, commands/*) never calls
- * into vscode — only the thin adapter wrappers do, and those are not exercised
- * by unit tests. This stub exists solely to satisfy the module resolver.
+ * The pure logic (csp, iframeHtml, host helpers, discovery, config) never calls
+ * into vscode — only the thin adapters and EditorPanelController do, and the
+ * controller test injects a fake panel via createWebviewPanel. This stub exists
+ * mainly to satisfy the module resolver.
  */
 
 export const window = {
@@ -11,23 +12,32 @@ export const window = {
   showInformationMessage: async () => undefined,
   showWarningMessage: async () => undefined,
   showErrorMessage: async () => undefined,
-  showQuickPick: async () => undefined,
-  // Default stub panel; tests that exercise the editor panel override this with
-  // vi.spyOn to inject a fake WebviewPanel and assert on its webview.
+  registerTreeDataProvider: (_id: string, _provider: unknown) => ({ dispose: () => {} }),
+  // Default stub panel; the controller test overrides this with a fake panel.
   createWebviewPanel: (_id: string, _title: string, _col: unknown, _opts: unknown) => ({
-    webview: { html: "", postMessage: () => true, cspSource: "vscode-resource:" },
+    webview: {
+      html: "",
+      postMessage: () => true,
+      cspSource: "vscode-resource:",
+      onDidReceiveMessage: (_cb: (message: unknown) => void) => ({ dispose: () => {} }),
+    },
     reveal: () => {},
     onDidDispose: (_cb: () => void) => ({ dispose: () => {} }),
     dispose: () => {},
   }),
   activeColorTheme: { kind: 2 /* Dark */ },
-  activeTextEditor: undefined,
+  createTerminal: (_options: unknown) => ({ show: () => {}, dispose: () => {} }),
+  showQuickPick: async () => undefined,
+};
+
+export const env = {
+  clipboard: { writeText: async (_value: string) => {} },
 };
 
 export const workspace = {
   getConfiguration: () => ({ get: (_key: string, def: unknown) => def }),
   workspaceFolders: undefined,
-  registerTextDocumentContentProvider: () => ({ dispose: () => {} }),
+  getWorkspaceFolder: () => undefined,
 };
 
 export const commands = {
@@ -37,50 +47,62 @@ export const commands = {
 
 export const Uri = {
   parse: (s: string) => ({ toString: () => s, fsPath: s }),
+  file: (path: string) => ({
+    scheme: "file",
+    fsPath: path,
+    toString: () => `file://${path}`,
+  }),
   joinPath: (base: { fsPath: string }, ...parts: string[]) => ({
     toString: () => [base.fsPath, ...parts].join("/"),
     fsPath: [base.fsPath, ...parts].join("/"),
   }),
 };
 
-export const EventEmitter = class {
-  event = () => ({ dispose: () => {} });
-  fire() {}
-  dispose() {}
-};
-
-export const StatusBarAlignment = { Left: 1, Right: 2 };
 export const ViewColumn = { Active: -1, Beside: -2, One: 1, Two: 2 };
 export const ColorThemeKind = { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 };
+
+export class EventEmitter<T> {
+  private listeners: Array<(event: T) => void> = [];
+
+  event = (listener: (event: T) => void) => {
+    this.listeners.push(listener);
+    return {
+      dispose: () => {
+        this.listeners = this.listeners.filter((candidate) => candidate !== listener);
+      },
+    };
+  };
+
+  fire(event: T): void {
+    for (const listener of [...this.listeners]) {
+      listener(event);
+    }
+  }
+
+  dispose(): void {
+    this.listeners = [];
+  }
+}
+
+export class ThemeIcon {
+  constructor(
+    readonly id: string,
+    readonly color?: ThemeColor,
+  ) {}
+}
+
+export class ThemeColor {
+  constructor(readonly id: string) {}
+}
+
 export const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
+export const QuickPickItemKind = { Separator: -1, Default: 0 };
 
 export const TreeItem = class {
   label: string;
   collapsibleState: number;
-  description?: string;
-  tooltip?: unknown;
-  iconPath?: unknown;
-  contextValue?: string;
-  command?: unknown;
-  id?: string;
   constructor(label: string, collapsibleState = 0) {
     this.label = label;
     this.collapsibleState = collapsibleState;
   }
 };
-
-export const ThemeIcon = class {
-  id: string;
-  constructor(id: string) {
-    this.id = id;
-  }
-};
-
-export const MarkdownString = class {
-  value: string;
-  constructor(value = "") {
-    this.value = value;
-  }
-};
-
-export const WebviewViewProvider = class {};

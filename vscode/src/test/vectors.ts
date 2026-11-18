@@ -1,7 +1,7 @@
 /**
- * Loads the language-neutral conformance vectors from docs/conformance/ (the
- * single source of truth shared with the future Kotlin impl). Tests read these
- * from the repo path; they contain no TS-isms.
+ * Loads the language-neutral conformance vectors from docs/conformance/, which
+ * the IntelliJ plugin's tests run as well, so both IDEs discover a local server
+ * the same way.
  *
  * The conformance dir is located by walking up from the current working
  * directory until `docs/conformance` is found. This avoids `import.meta`
@@ -27,9 +27,7 @@ function findConformanceDir(): string {
   throw new Error("could not locate docs/conformance from " + process.cwd());
 }
 
-export const CONFORMANCE_DIR = findConformanceDir();
-
 export function loadVectors<T = unknown>(name: string): T {
-  const path = join(CONFORMANCE_DIR, name);
+  const path = join(findConformanceDir(), name);
   return JSON.parse(readFileSync(path, "utf8")) as T;
 }

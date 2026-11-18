@@ -1,22 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { interpretHealth, HealthObservation, HealthOutcome } from "./health";
-import { loadVectors } from "../test/vectors";
+import { interpretHealth } from "./health";
 
-interface HealthVectors {
-  timeoutMs: number;
-  cases: Array<{
-    name: string;
-    input: HealthObservation;
-    expected: { outcome: HealthOutcome };
-  }>;
-}
+describe("interpretHealth", () => {
+  it("200 + {status:'ok'} -> ok", () => {
+    expect(interpretHealth({ status: 200, body: { status: "ok" } })).toBe("ok");
+  });
 
-describe("interpretHealth (conformance: health.json)", () => {
-  const vectors = loadVectors<HealthVectors>("health.json");
+  it("200 without an ok status body -> unhealthy", () => {
+    expect(interpretHealth({ status: 200, body: { status: "degraded" } })).toBe("unhealthy");
+    expect(interpretHealth({ status: 200, body: null })).toBe("unhealthy");
+  });
 
-  for (const c of vectors.cases) {
-    it(c.name, () => {
-      expect(interpretHealth(c.input)).toBe(c.expected.outcome);
-    });
-  }
+  it("non-200 -> unhealthy", () => {
+    expect(interpretHealth({ status: 503, body: { status: "ok" } })).toBe("unhealthy");
+  });
+
+  it("timeout -> timeout", () => {
+    expect(interpretHealth({ timedOut: true })).toBe("timeout");
+  });
+
+  it("network error -> unreachable", () => {
+    expect(interpretHealth({ networkError: true })).toBe("unreachable");
+  });
 });

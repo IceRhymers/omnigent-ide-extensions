@@ -35,9 +35,7 @@ export function interpretHealth(obs: HealthObservation): HealthOutcome {
 
 function isStatusOk(body: unknown): boolean {
   return (
-    typeof body === "object" &&
-    body !== null &&
-    (body as Record<string, unknown>).status === "ok"
+    typeof body === "object" && body !== null && (body as Record<string, unknown>).status === "ok"
   );
 }
 

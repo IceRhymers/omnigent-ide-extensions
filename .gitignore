@@ -18,15 +18,6 @@ yarn-error.log*
 .eslintcache
 *.tsbuildinfo
 
-# Built bootstrap (generated from media/bootstrap/bootstrap.ts)
-vscode/media/bootstrap/bootstrap.js
-vscode/media/bootstrap/bootstrap.js.map
-
-# Vendored ap-web embed bundle — an external build input produced from the
-# pinned omnigent submodule (see vscode/scripts/build-apweb.md / `make build-apweb`).
-# Rebuilt, never committed; provenance is the submodule SHA in vscode/apweb-pin.json.
-vscode/media/apweb/
-
 # ── Gradle / IntelliJ plugin (intellij/) ─────────────────────────────────────
 .gradle/
 **/.gradle/

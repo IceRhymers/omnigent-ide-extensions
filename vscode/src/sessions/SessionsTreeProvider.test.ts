@@ -1,175 +1,423 @@
-import { describe, it, expect, vi } from "vitest";
-import { SessionsTreeProvider, type SessionsNode } from "./SessionsTreeProvider";
-import type { ClientOptions, Session, SessionsPage } from "../api/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as vscode from "vscode";
+import type { ServerTarget } from "../config";
+import type { ServerConnection } from "../servers/connection";
+import type { SessionList, SessionsApiClient, SessionSummary } from "./api";
+import { SessionsTreeProvider } from "./SessionsTreeProvider";
+import type { RepositoryWorktrees, Worktree } from "./worktrees";
 
-/** A fetch stub returning queued pages in order; non-2xx statuses are honored. */
-function clientWith(
-  responses: Array<{ status: number; body: unknown }>,
-): ClientOptions {
-  let i = 0;
-  const fetchImpl = (async () => {
-    const r = responses[Math.min(i, responses.length - 1)];
-    i += 1;
-    return {
-      status: r.status,
-      ok: r.status >= 200 && r.status < 300,
-      json: async () => r.body,
-    } as unknown as Response;
-  }) as unknown as ClientOptions["fetchImpl"];
-  return { baseUrl: "http://127.0.0.1:6767", fetchImpl };
+function worktree(path: string, branch: string | undefined, isMain: boolean): Worktree {
+  return { path, branch, detached: branch === undefined, locked: false, isMain };
 }
 
-function page(data: Partial<Session>[], extra: Partial<SessionsPage> = {}): SessionsPage {
+const MAIN_WORKTREE = worktree("/work/repo", "main", true);
+const FEATURE_WORKTREE = worktree("/work/repo-worktrees/feature", "feature", false);
+
+function repository(worktrees: Worktree[]): RepositoryWorktrees {
   return {
-    object: "list",
-    data: data.map((s) => ({ id: "conv_x", ...s })) as Session[],
-    ...extra,
+    folder: "/work/repo",
+    prefix: "",
+    worktrees,
+    roots: ["/work/repo", "/work/repo-worktrees/feature"],
   };
 }
 
-const output = { appendLine: () => {} } as unknown as import("vscode").OutputChannel;
+const HOST_ID = "298917f54901428299dee608f20654c6";
+const OTHER_HOST_ID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const TARGET: ServerTarget = {
+  baseUrl: "http://127.0.0.1:6767",
+  origin: "http://127.0.0.1:6767",
+  hostType: "local",
+  source: "discovered",
+};
+const OTHER_TARGET: ServerTarget = {
+  baseUrl: "http://127.0.0.1:7000",
+  origin: "http://127.0.0.1:7000",
+  hostType: "local",
+  source: "discovered",
+};
 
-function labels(nodes: SessionsNode[]): string[] {
-  return nodes.map((n) => (n.kind === "message" ? n.label : n.session.id));
+function session(
+  id: string,
+  workspace: string,
+  hostId = HOST_ID,
+  overrides: Partial<SessionSummary> = {},
+): SessionSummary {
+  return {
+    id,
+    title: `Session ${id}`,
+    agentName: "claude-native-ui",
+    status: "idle",
+    createdAt: 100,
+    updatedAt: 100,
+    hostId,
+    workspace,
+    pendingElicitationsCount: 0,
+    backgroundWorkRunning: false,
+    viewerUnread: false,
+    ...overrides,
+  };
 }
 
-describe("SessionsTreeProvider state nodes", () => {
-  it("reports no-server when client opts are undefined", async () => {
-    const p = new SessionsTreeProvider(() => undefined, output);
-    await p.refresh();
-    expect(labels(p.getChildren())).toEqual(["Omnigent server unreachable"]);
+const SESSIONS = [
+  session("inside", "/work/repo/src"),
+  session("worktree", "/work/repo-worktrees/feature"),
+  session("outside", "/work/other"),
+  session("other-host", "/work/repo", OTHER_HOST_ID),
+];
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function makeProvider(
+  target: ServerTarget | null = TARGET,
+  options: {
+    scope?: "folder" | "all";
+    listSessions?: () => Promise<SessionList>;
+    worktrees?: Worktree[];
+  } = {},
+) {
+  const targetChanged = new vscode.EventEmitter<ServerTarget | undefined>();
+  const connection = {
+    serverTarget: target ?? undefined,
+    onDidChangeTarget: targetChanged.event,
+  } as { serverTarget: ServerTarget | undefined; onDidChangeTarget: unknown };
+  const state = new Map<string, unknown>(
+    options.scope ? [["omnigent.sessions.scope", options.scope]] : [],
+  );
+  const context = {
+    workspaceState: {
+      get: vi.fn((key: string, fallback: unknown) => state.get(key) ?? fallback),
+      update: vi.fn(async (key: string, value: unknown) => {
+        state.set(key, value);
+      }),
+    },
+  } as unknown as vscode.ExtensionContext;
+  const api: SessionsApiClient = {
+    listSessions: vi.fn(
+      options.listSessions ?? (async () => ({ sessions: SESSIONS, truncated: false })),
+    ),
+    listHosts: vi.fn(async () => []),
+    listAgents: vi.fn(async () => []),
+    createSession: vi.fn(async () => ({ id: "new-session" })),
+  };
+  const hostIdReader = vi.fn(async () => `host_${HOST_ID}`);
+  const provider = new SessionsTreeProvider(
+    context,
+    connection as unknown as ServerConnection,
+    { appendLine: vi.fn() } as unknown as vscode.OutputChannel,
+    {
+      apiFactory: () => api,
+      hostIdReader,
+      repositoryForFolder: async () => repository(options.worktrees ?? [MAIN_WORKTREE]),
+      now: () => 200_000,
+      pollIntervalMs: 10_000,
+    },
+  );
+  // Each tree change, as the node ids VS Code would render.
+  const renders: string[][] = [];
+  provider.onDidChangeTreeData(() => renders.push(nodeIds(provider)));
+  return { provider, connection, targetChanged, api, context, hostIdReader, renders };
+}
+
+function nodeIds(provider: SessionsTreeProvider): string[] {
+  return provider.getChildren().map((node) => {
+    if (node.kind === "session") {
+      return node.session.id;
+    }
+    if (node.kind === "worktree") {
+      return `worktree:${node.worktree.path}`;
+    }
+    return node.id;
+  });
+}
+
+function openRepoFolder(): void {
+  (vscode.workspace as unknown as Record<string, unknown>).workspaceFolders = [
+    { name: "repo", uri: { scheme: "file", fsPath: "/work/repo" } },
+  ];
+}
+
+describe("SessionsTreeProvider", () => {
+  afterEach(() => {
+    (vscode.workspace as unknown as Record<string, unknown>).workspaceFolders = undefined;
+    vi.useRealTimers();
   });
 
-  it("reports unauthorized on 401", async () => {
-    const opts = clientWith([{ status: 401, body: {} }]);
-    const p = new SessionsTreeProvider(() => opts, output);
-    await p.refresh();
-    expect(labels(p.getChildren())).toEqual([
-      "Not authorized (401/403) — check your token",
-    ]);
+  it("defaults to this folder, includes its worktrees, and excludes other folders and hosts", async () => {
+    openRepoFolder();
+    const { provider } = makeProvider();
+    try {
+      await provider.refresh();
+      const nodes = provider.getChildren();
+      expect(nodeIds(provider)).toEqual(["inside", "worktree"]);
+      expect(provider.scopeMode).toBe("folder");
+      const first = nodes[0];
+      expect(first.kind).toBe("session");
+      if (first.kind === "session") {
+        expect(provider.getTreeItem(first).command?.command).toBe("omnigent.openSession");
+        expect(provider.getTreeItem(first).description).toContain("Claude Code");
+      }
+    } finally {
+      provider.dispose();
+    }
   });
 
-  it("reports unauthorized on 403", async () => {
-    const opts = clientWith([{ status: 403, body: {} }]);
-    const p = new SessionsTreeProvider(() => opts, output);
-    await p.refresh();
-    expect(labels(p.getChildren())).toEqual([
-      "Not authorized (401/403) — check your token",
-    ]);
+  it("all scope shows every session and keeps the choice in workspace state", async () => {
+    openRepoFolder();
+    const { provider, context } = makeProvider();
+    try {
+      await provider.setScope("all");
+      expect(provider.getChildren().filter((node) => node.kind === "session")).toHaveLength(4);
+      expect(context.workspaceState.update).toHaveBeenCalledWith("omnigent.sessions.scope", "all");
+      const first = provider.getChildren()[0];
+      if (first.kind === "session") {
+        expect(provider.getTreeItem(first).description).toContain("src");
+      }
+    } finally {
+      provider.dispose();
+    }
   });
 
-  it("reports error on a 500", async () => {
-    const opts = clientWith([{ status: 500, body: {} }]);
-    const p = new SessionsTreeProvider(() => opts, output);
-    await p.refresh();
-    expect(labels(p.getChildren())).toEqual(["Omnigent server unreachable"]);
+  it("leaves the tree empty for viewsWelcome when no server is resolved", async () => {
+    const { provider, api } = makeProvider(null);
+    try {
+      await provider.refresh();
+      expect(provider.getChildren()).toEqual([]);
+      expect(api.listSessions).not.toHaveBeenCalled();
+    } finally {
+      provider.dispose();
+    }
   });
 
-  it("reports empty when there are no sessions", async () => {
-    const opts = clientWith([{ status: 200, body: page([], { has_more: false }) }]);
-    const p = new SessionsTreeProvider(() => opts, output);
-    await p.refresh();
-    expect(labels(p.getChildren())).toEqual(["No sessions"]);
-  });
-
-  it("lists sessions sorted by updated_at desc when ready", async () => {
-    const opts = clientWith([
-      {
-        status: 200,
-        body: page(
-          [
-            { id: "old", updated_at: 100 },
-            { id: "new", updated_at: 200 },
-          ],
-          { has_more: false },
-        ),
-      },
-    ]);
-    const p = new SessionsTreeProvider(() => opts, output);
-    await p.refresh();
-    expect(labels(p.getChildren())).toEqual(["new", "old"]);
-  });
-
-  it("shows the no-match message when a filter excludes everything", async () => {
-    const opts = clientWith([
-      { status: 200, body: page([{ id: "a", agent_name: "coder" }], { has_more: false }) },
-    ]);
-    const p = new SessionsTreeProvider(() => opts, output);
-    await p.refresh();
-    p.getFilter().agentName = "nobody";
-    expect(labels(p.getChildren())).toEqual(["No sessions match the active filter"]);
-  });
-
-  it("hides archived sessions by default", async () => {
-    const opts = clientWith([
-      {
-        status: 200,
-        body: page(
-          [
-            { id: "a", archived: true, updated_at: 2 },
-            { id: "b", updated_at: 1 },
-          ],
-          { has_more: false },
-        ),
-      },
-    ]);
-    const p = new SessionsTreeProvider(() => opts, output);
-    await p.refresh();
-    expect(labels(p.getChildren())).toEqual(["b"]);
-  });
-});
-
-describe("SessionsTreeProvider truncation", () => {
-  it("appends a 'Showing first N' node when the cap is reached", async () => {
-    // cap is 200 in the provider; build 200 sessions with has_more true on the page.
-    const data = Array.from({ length: 200 }, (_, i) => ({
-      id: `conv_${i}`,
-      updated_at: 1000 - i,
-    }));
-    const opts = clientWith([{ status: 200, body: page(data, { has_more: true, last_id: "conv_199" }) }]);
-    const p = new SessionsTreeProvider(() => opts, output);
-    await p.refresh();
-    const nodes = p.getChildren();
-    const last = nodes[nodes.length - 1];
-    expect(last.kind).toBe("message");
-    expect(last.kind === "message" && last.label).toBe("Showing first 200");
-  });
-});
-
-describe("SessionsTreeProvider.getTreeItem", () => {
-  it("maps a session node to a clickable tree item", () => {
-    const p = new SessionsTreeProvider(() => undefined, output);
-    const item = p.getTreeItem({
-      kind: "session",
-      session: { id: "conv_1", title: "Hi", status: "running" },
+  it.each([
+    ["a terminal prompt", { status: "running", blockedOn: "permission prompt" }, "Waiting", "bell"],
+    ["a web prompt", { pendingElicitationsCount: 1 }, "Waiting", "bell"],
+    ["background work", { backgroundWorkRunning: true }, "Running", "sync~spin"],
+    [
+      "activity since last seen",
+      { updatedAt: 150, viewerLastSeen: 120 },
+      "Claude Code",
+      "circle-filled",
+    ],
+  ] as const)("shows %s like the web sidebar", async (_case, overrides, description, icon) => {
+    const { provider } = makeProvider(TARGET, {
+      scope: "all",
+      listSessions: async () => ({
+        sessions: [session("one", "/work/repo", HOST_ID, overrides)],
+        truncated: false,
+      }),
     });
-    expect(item.label).toBe("Hi");
-    expect(item.id).toBe("conv_1");
-    expect((item.command as { command: string; arguments: unknown[] }).command).toBe(
-      "omnigent.openSessionFromTree",
-    );
-    expect((item.command as { arguments: unknown[] }).arguments).toEqual(["conv_1"]);
-    expect((item.iconPath as { id: string }).id).toBe("play-circle");
+    try {
+      await provider.refresh();
+      const [node] = provider.getChildren();
+      const item = provider.getTreeItem(node);
+      expect(String(item.description).split(" · ")[0]).toBe(description);
+      expect((item.iconPath as vscode.ThemeIcon).id).toBe(icon);
+    } finally {
+      provider.dispose();
+    }
   });
 
-  it("maps a message node to a plain, non-selectable item", () => {
-    const p = new SessionsTreeProvider(() => undefined, output);
-    const item = p.getTreeItem({ kind: "message", label: "Loading…" });
-    expect(item.label).toBe("Loading…");
-    expect(item.command).toBeUndefined();
-  });
-});
-
-describe("SessionsTreeProvider.setFilter", () => {
-  it("sets the omnigent.filterActive context via executeCommand", async () => {
-    const opts = clientWith([{ status: 200, body: page([], { has_more: false }) }]);
-    const vscode = await import("vscode");
-    const spy = vi.spyOn(vscode.commands, "executeCommand");
-    const p = new SessionsTreeProvider(() => opts, output);
-    p.setFilter((f) => {
-      f.agentName = "coder";
+  it("drops a load whose scope changed mid-flight and settles on the new scope", async () => {
+    openRepoFolder();
+    const firstPage = deferred<SessionList>();
+    let calls = 0;
+    const { provider, renders, hostIdReader } = makeProvider(TARGET, {
+      scope: "all",
+      listSessions: () => {
+        calls += 1;
+        return calls === 1
+          ? firstPage.promise
+          : Promise.resolve({ sessions: SESSIONS, truncated: false });
+      },
     });
-    expect(spy).toHaveBeenCalledWith("setContext", "omnigent.filterActive", true);
-    spy.mockRestore();
+    try {
+      const initial = provider.refresh();
+      const switched = provider.setScope("folder");
+      firstPage.resolve({ sessions: SESSIONS, truncated: false });
+      await Promise.all([initial, switched]);
+
+      expect(nodeIds(provider)).toEqual(["inside", "worktree"]);
+      expect(hostIdReader).toHaveBeenCalledTimes(1);
+      expect(renders.flat()).not.toContain("no-host");
+    } finally {
+      provider.dispose();
+    }
+  });
+
+  it("doesn't show the old server's failure after switching servers", async () => {
+    const oldServer = deferred<SessionList>();
+    let calls = 0;
+    const { provider, connection, targetChanged, renders } = makeProvider(TARGET, {
+      scope: "all",
+      listSessions: () => {
+        calls += 1;
+        return calls === 1
+          ? oldServer.promise
+          : Promise.resolve({ sessions: SESSIONS, truncated: false });
+      },
+    });
+    try {
+      provider.setVisible(true);
+      connection.serverTarget = OTHER_TARGET;
+      targetChanged.fire(OTHER_TARGET);
+      oldServer.reject(new Error("proxy closed"));
+      await provider.refresh();
+
+      expect(renders.flat()).not.toContain("sessions-error");
+      expect(nodeIds(provider)).toHaveLength(4);
+    } finally {
+      provider.dispose();
+    }
+  });
+
+  it("stops queued refreshes once disposed", async () => {
+    const pending = deferred<SessionList>();
+    const { provider, api } = makeProvider(TARGET, {
+      scope: "all",
+      listSessions: () => pending.promise,
+    });
+    const active = provider.refresh();
+    void provider.refresh();
+    provider.dispose();
+    pending.resolve({ sessions: SESSIONS, truncated: false });
+    await active;
+
+    expect(api.listSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it("polls only while visible and the window is focused", async () => {
+    vi.useFakeTimers();
+    const { provider, api } = makeProvider(TARGET, { scope: "all" });
+    try {
+      provider.setVisible(true);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(api.listSessions).toHaveBeenCalledTimes(2);
+
+      provider.setWindowFocused(false);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(api.listSessions).toHaveBeenCalledTimes(2);
+
+      provider.setWindowFocused(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.listSessions).toHaveBeenCalledTimes(3);
+
+      provider.setVisible(false);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(api.listSessions).toHaveBeenCalledTimes(3);
+    } finally {
+      provider.dispose();
+    }
+  });
+
+  it("says when older sessions were left out", async () => {
+    const { provider } = makeProvider(TARGET, {
+      scope: "all",
+      listSessions: async () => ({ sessions: SESSIONS, truncated: true }),
+    });
+    try {
+      await provider.refresh();
+      expect(nodeIds(provider).at(-1)).toBe("truncated");
+    } finally {
+      provider.dispose();
+    }
+  });
+
+  it("groups sessions by worktree when the repository has several", async () => {
+    openRepoFolder();
+    const { provider } = makeProvider(TARGET, {
+      worktrees: [MAIN_WORKTREE, FEATURE_WORKTREE],
+    });
+    try {
+      await provider.refresh();
+      expect(nodeIds(provider)).toEqual([
+        "worktree:/work/repo",
+        "worktree:/work/repo-worktrees/feature",
+      ]);
+
+      const [current, feature] = provider.getChildren();
+      if (current.kind !== "worktree" || feature.kind !== "worktree") {
+        throw new Error("expected worktree groups");
+      }
+      expect(current.current).toBe(true);
+      expect(provider.getTreeItem(current).collapsibleState).toBe(
+        vscode.TreeItemCollapsibleState.Expanded,
+      );
+      expect(provider.getTreeItem(current).description).toBe("this window");
+      expect(provider.getTreeItem(feature).description).toBe("1 session");
+      expect(
+        provider.getChildren(current).map((node) => node.kind === "session" && node.session.id),
+      ).toEqual(["inside"]);
+      expect(
+        provider.getChildren(feature).map((node) => node.kind === "session" && node.session.id),
+      ).toEqual(["worktree"]);
+      const [otherSession] = provider.getChildren(feature);
+      expect(provider.getTreeItem(otherSession).contextValue).toBe(
+        "omnigent.session.otherWorktree",
+      );
+      expect(provider.worktreeGroups).toHaveLength(2);
+    } finally {
+      provider.dispose();
+    }
+  });
+
+  it("lists worktrees without sessions and marks waiting and running work", async () => {
+    openRepoFolder();
+    const empty = worktree("/work/repo-worktrees/empty", "empty", false);
+    const { provider } = makeProvider(TARGET, {
+      worktrees: [MAIN_WORKTREE, FEATURE_WORKTREE, empty],
+      listSessions: async () => ({
+        sessions: [
+          session("waiting", "/work/repo-worktrees/feature", HOST_ID, {
+            status: "running",
+            blockedOn: "permission prompt",
+          }),
+          session("running", "/work/repo/src", HOST_ID, { status: "running" }),
+        ],
+        truncated: false,
+      }),
+    });
+    try {
+      await provider.refresh();
+      const [current, feature, emptyNode] = provider.getChildren();
+      if (
+        current.kind !== "worktree" ||
+        feature.kind !== "worktree" ||
+        emptyNode.kind !== "worktree"
+      ) {
+        throw new Error("expected worktree groups");
+      }
+      expect(provider.getTreeItem(current).description).toBe("this window · 1 running");
+      expect(provider.getTreeItem(feature).description).toBe("1 waiting");
+      expect(provider.getTreeItem(emptyNode).description).toBe("no sessions");
+      expect(provider.getTreeItem(emptyNode).collapsibleState).toBe(
+        vscode.TreeItemCollapsibleState.None,
+      );
+    } finally {
+      provider.dispose();
+    }
+  });
+
+  it("stays flat in all scope even with several worktrees", async () => {
+    openRepoFolder();
+    const { provider } = makeProvider(TARGET, {
+      scope: "all",
+      worktrees: [MAIN_WORKTREE, FEATURE_WORKTREE],
+    });
+    try {
+      await provider.refresh();
+      expect(provider.getChildren().every((node) => node.kind !== "worktree")).toBe(true);
+      expect(provider.worktreeGroups).toEqual([]);
+    } finally {
+      provider.dispose();
+    }
   });
 });

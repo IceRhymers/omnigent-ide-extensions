@@ -1,10 +1,10 @@
 /**
- * A11 — "Omnigent: Open" command.
+ * "Omnigent: Open" command.
  *
- * The full Omnigent app renders only in the editor-beside `WebviewPanel`, owned
- * by the shared `EditorPanelController`. `omnigent.open` simply ensures that
- * panel is open and revealed; the controller owns the singleton, the resolved
- * server target/token, and the route.
+ * The Omnigent UI renders only in the editor-beside `WebviewPanel`, owned by the
+ * shared `EditorPanelController`. `omnigent.open` simply ensures that panel is
+ * open and revealed; the controller owns the singleton and the resolved local
+ * server target.
  */
 import * as vscode from "vscode";
 import type { EditorPanelController } from "../panel/EditorPanelController";

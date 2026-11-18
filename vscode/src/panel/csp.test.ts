@@ -1,107 +1,48 @@
 /**
- * A5/A6 CSP unit tests — guards PM2 (connect-src must include wss: + the resolved WS origin).
- * A6 additions: wasm-unsafe-eval in script-src, worker-src blob: for Monaco workers.
+ * CSP unit tests for the iframe host page. The host page needs exactly three
+ * directives; everything Monaco/embed-related (script-src/connect-src/worker-src/
+ * img-src) is intentionally absent because the framed app is governed by the
+ * server's own headers, not this policy.
  */
 import { describe, it, expect } from "vitest";
-import { buildCsp, wsOriginsForServer } from "./csp";
+import { buildCsp } from "./csp";
 
-describe("wsOriginsForServer", () => {
-  it("local http -> ws", () => {
-    expect(wsOriginsForServer("http://127.0.0.1:6767")).toEqual(["ws://127.0.0.1:6767"]);
-  });
-  it("remote https -> wss", () => {
-    expect(wsOriginsForServer("https://omnigent.example.com")).toEqual([
-      "wss://omnigent.example.com",
-    ]);
-  });
-  it("invalid url -> empty array", () => {
-    expect(wsOriginsForServer("not-a-url")).toEqual([]);
-  });
-});
+describe("buildCsp", () => {
+  const base = { serverOrigin: "http://127.0.0.1:6767", nonce: "test-nonce-abc" };
 
-describe("buildCsp (PM2 guard)", () => {
-  const base = {
-    serverOrigin: "https://omnigent.example.com",
-    wsOrigins: ["wss://omnigent.example.com"],
-    nonce: "test-nonce-abc",
-  };
-
-  it("contains default-src none", () => {
+  it("contains default-src 'none'", () => {
     expect(buildCsp(base)).toContain("default-src 'none'");
   });
 
-  it("script-src uses nonce only (no unsafe-inline in script-src directive)", () => {
+  it("style-src uses the nonce", () => {
     const csp = buildCsp(base);
-    expect(csp).toContain("'nonce-test-nonce-abc'");
-    // Extract the script-src directive only and confirm it has no unsafe-inline.
-    const scriptDirective = csp.split(";").find((d) => d.trim().startsWith("script-src")) ?? "";
-    expect(scriptDirective).not.toContain("'unsafe-inline'");
+    const styleDirective = csp.split(";").find((d) => d.trim().startsWith("style-src")) ?? "";
+    expect(styleDirective).toContain("'nonce-test-nonce-abc'");
   });
 
-  it("script-src includes wasm-unsafe-eval (Monaco wasm runtime)", () => {
-    const csp = buildCsp(base);
-    const scriptDirective = csp.split(";").find((d) => d.trim().startsWith("script-src")) ?? "";
-    expect(scriptDirective).toContain("'wasm-unsafe-eval'");
-  });
-
-  it("frame-src allows the server origin (iframe render mode)", () => {
+  it("frame-src allows the server origin", () => {
     const csp = buildCsp(base);
     const frameDirective = csp.split(";").find((d) => d.trim().startsWith("frame-src")) ?? "";
-    expect(frameDirective).toContain("https://omnigent.example.com");
+    expect(frameDirective).toContain("http://127.0.0.1:6767");
     expect(frameDirective).not.toContain("'none'");
   });
 
-  it("connect-src includes the server origin (PM2)", () => {
-    const csp = buildCsp(base);
-    expect(csp).toContain("https://omnigent.example.com");
-  });
-
-  it("connect-src includes wss: WS origin (PM2 core assertion)", () => {
-    const csp = buildCsp(base);
-    expect(csp).toContain("wss://omnigent.example.com");
-  });
-
-  it("connect-src includes additional managed-sandbox WS origin (R9)", () => {
-    const csp = buildCsp({
-      ...base,
-      wsOrigins: ["wss://omnigent.example.com", "wss://sandbox-abc.modal.run"],
-    });
-    expect(csp).toContain("wss://omnigent.example.com");
-    expect(csp).toContain("wss://sandbox-abc.modal.run");
-  });
-
-  it("connect-src covers local ws: origin (PM2 local path)", () => {
-    const csp = buildCsp({
-      serverOrigin: "http://127.0.0.1:6767",
-      wsOrigins: ["ws://127.0.0.1:6767"],
-      nonce: "n",
-    });
-    expect(csp).toContain("ws://127.0.0.1:6767");
-    expect(csp).toContain("http://127.0.0.1:6767");
-  });
-
-  it("cspSource is included in script-src when provided", () => {
+  it("includes cspSource in style-src when provided", () => {
     const csp = buildCsp({ ...base, cspSource: "vscode-resource:" });
-    expect(csp).toContain("vscode-resource:");
+    const styleDirective = csp.split(";").find((d) => d.trim().startsWith("style-src")) ?? "";
+    expect(styleDirective).toContain("vscode-resource:");
   });
 
-  it("worker-src includes blob: (Monaco workers)", () => {
+  it("does NOT emit script-src / connect-src / worker-src / img-src (iframe host only)", () => {
     const csp = buildCsp(base);
-    const workerDirective = csp.split(";").find((d) => d.trim().startsWith("worker-src")) ?? "";
-    expect(workerDirective).toContain("blob:");
+    expect(csp).not.toContain("script-src");
+    expect(csp).not.toContain("connect-src");
+    expect(csp).not.toContain("worker-src");
+    expect(csp).not.toContain("img-src");
+    expect(csp).not.toContain("wasm-unsafe-eval");
   });
 
-  it("worker-src includes cspSource when provided", () => {
-    const csp = buildCsp({ ...base, cspSource: "vscode-webview-resource:" });
-    const workerDirective = csp.split(";").find((d) => d.trim().startsWith("worker-src")) ?? "";
-    expect(workerDirective).toContain("vscode-webview-resource:");
-    expect(workerDirective).toContain("blob:");
-  });
-
-  it("img-src includes https: for remote images", () => {
-    const csp = buildCsp(base);
-    const imgDirective = csp.split(";").find((d) => d.trim().startsWith("img-src")) ?? "";
-    expect(imgDirective).toContain("https:");
-    expect(imgDirective).toContain("data:");
+  it("never references a token", () => {
+    expect(buildCsp(base).toLowerCase()).not.toContain("token");
   });
 });

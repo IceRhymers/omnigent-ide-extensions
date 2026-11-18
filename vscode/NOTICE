@@ -1,0 +1,29 @@
+Copyright (2026) Databricks, Inc.
+
+This Software includes software developed at Databricks (https://www.databricks.com/) and its use is subject to the included LICENSE file.
+
+________________
+
+This is a modified, unofficial distribution of the Omnigent VS Code extension
+(https://github.com/omnigent-ai/omnigent, editors/vscode), maintained at
+https://github.com/IceRhymers/omnigent-ide-extensions. It is not made, reviewed
+or supported by Databricks or the Omnigent team.
+
+Changes from the upstream source: the extension's name, publisher and
+repository metadata; its packaging and build scripts; its README, CHANGELOG and
+this NOTICE; two helper modules copied into src/vendor/omnigent/ from the
+Omnigent desktop app (web/electron/src/) and the imports that load them; and
+formatting. PROVENANCE.md in the repository records the source commits and
+every changed file.
+
+________________
+
+The bundled Omnigent web app (dist/web-ui), built from the Omnigent project at
+the commit recorded in PROVENANCE.md, contains code from the following open
+source project, licensed under the MIT license (https://opensource.org/license/mit):
+
+@xterm/addon-web-links - https://www.npmjs.com/package/@xterm/addon-web-links
+Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js).
+
+The licenses of the third-party packages bundled into dist/web-ui are listed in
+dist/web-ui-licenses.md, which is included in the extension package.

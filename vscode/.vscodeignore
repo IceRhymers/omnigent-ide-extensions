@@ -1,31 +1,34 @@
 # Controls what goes INTO the .vsix. The runtime is the esbuild bundle
-# (dist/extension.js) + the webview assets under media/. Everything else is
-# dev-only and excluded.
+# (dist/extension.js) + the icons under media/. Everything else is dev-only.
 
 # TypeScript sources (only the built .js is needed at runtime)
 src/**
 **/*.ts
-!media/**/*.d.ts
 
 # Dev tooling / config
-scripts/**
 esbuild.js
+scripts/**
 tsconfig.json
 vitest.config.ts
 **/*.test.*
 **/__mocks__/**
 .gitignore
 .vscodeignore
+.prettierrc.json
+.prettierignore
+pnpm-lock.yaml
+pnpm-workspace.yaml
 
-# Internal OMC/session state — never ship in the package
-.omc/**
-
-# Dependencies are bundled into dist/ by esbuild — not needed in the package
-node_modules/**
+# Repository docs that aren't part of the listing
+PUBLISHING.md
+PROVENANCE.md
 
 # Source maps (drop to keep the package smaller)
 **/*.map
 
-# Keep: dist/** (the bundled extension — includes the default iframe render path,
-# so media/apweb is NOT required for the default renderMode), media/** (icon.svg +
-# bootstrap.js for the optional embed renderMode), package.json, README.md, apweb-pin.json
+# Dependencies are bundled into dist/ by esbuild — not needed in the package
+node_modules/**
+
+# Keep (NOT ignored): dist/** (the bundled extension; dist/web-ui, the app
+# served for Databricks workspaces; dist/web-ui-licenses.md, its third-party
+# licenses), media/** (icons), package.json, README.md, CHANGELOG.md, LICENSE, NOTICE

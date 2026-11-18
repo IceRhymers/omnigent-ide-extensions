@@ -1,0 +1,233 @@
+# Releases the VS Code extension: builds and checksums the .vsix, publishes that
+# same file to the VS Code Marketplace and Open VSX, then creates the
+# `vscode-v<version>` GitHub release with the .vsix and its .sha256 attached.
+# Run it manually from master with the version already in vscode/package.json
+# and vscode/CHANGELOG.md; `dry_run` (the default) stops after the build.
+#
+# Publishing needs no stored Marketplace secret: the `publish` job runs in the
+# `marketplace` environment (required reviewer) and signs in with GitHub OIDC
+# (Trusted Publishing). Open VSX uses the OVSX_PAT environment secret when it's
+# set (needed for the first release) and Trusted Publishing otherwise. Both
+# stores' Trusted Publishing registrations name this file and that
+# environment, so renaming either breaks publishing. See vscode/PUBLISHING.md.
+name: VS Code Extension Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (X.Y.Z); must match vscode/package.json"
+        required: true
+        type: string
+      dry_run:
+        description: "Build and checksum only; don't publish or create the release"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscode-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build .vsix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      sha: ${{ steps.meta.outputs.sha }}
+      vsix: ${{ steps.checksum.outputs.vsix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: true
+          fetch-depth: 1
+
+      - name: Validate version, branch and tag
+        id: meta
+        env:
+          VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REF: ${{ github.ref }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be X.Y.Z (got '$VERSION')"
+            exit 1
+          fi
+          pkg_version=$(node -p "require('./vscode/package.json').version")
+          if [[ "$pkg_version" != "$VERSION" ]]; then
+            echo "::error::vscode/package.json is at $pkg_version, not $VERSION. Bump it (and CHANGELOG.md) in a PR first."
+            exit 1
+          fi
+          if [[ "$DRY_RUN" != "true" && "$REF" != "refs/heads/master" ]]; then
+            echo "::error::Releases run from master (this run is on $REF). Use dry_run to test another branch."
+            exit 1
+          fi
+          tag="vscode-v$VERSION"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "::error::$tag already exists; bump the version for a new release."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Building $tag from $(git rev-parse --short HEAD) (omnigent submodule $(git -C third_party/omnigent rev-parse --short HEAD))" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: vscode/package.json
+
+      - run: make install
+
+      - name: Check the publisher ID is set
+        run: pnpm run check:publisher
+        working-directory: vscode
+
+      - run: make check
+      - run: make vendor-check
+      - run: make web-deps
+      - run: make package-vscode
+
+      - name: Checksum
+        id: checksum
+        working-directory: vscode
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          vsix="omnigent-vscode-$VERSION.vsix"
+          test -f "$vsix"
+          sha256sum "$vsix" > "$vsix.sha256"
+          echo "vsix=$vsix" >> "$GITHUB_OUTPUT"
+          {
+            echo "Built \`$vsix\` ($(du -h "$vsix" | cut -f1))"
+            echo
+            echo '```'
+            cat "$vsix.sha256"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Release notes from the CHANGELOG
+        working-directory: vscode
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          node - <<'JS'
+          const fs = require("node:fs");
+          const version = process.env.VERSION;
+          const text = fs.readFileSync("CHANGELOG.md", "utf8");
+          const start = text.indexOf(`\n## [${version}]`);
+          if (start < 0) {
+            console.log(`::error::CHANGELOG.md has no "## [${version}]" section.`);
+            process.exit(1);
+          }
+          const rest = text.slice(text.indexOf("\n", start + 1) + 1);
+          const end = rest.search(/^## /m);
+          const body = (end < 0 ? rest : rest.slice(0, end)).trim();
+          const footer = [
+            "---",
+            "Unofficial community build; not made, reviewed or supported by the Omnigent team or Databricks.",
+            "Install it from the VS Code Marketplace or Open VSX, or download the `.vsix` below and verify it against its `.sha256`.",
+          ].join("\n\n");
+          fs.writeFileSync("release-notes.md", `${body}\n\n${footer}\n`);
+          JS
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vsix
+          path: |
+            vscode/${{ steps.checksum.outputs.vsix }}
+            vscode/${{ steps.checksum.outputs.vsix }}.sha256
+            vscode/release-notes.md
+          if-no-files-found: error
+
+  publish:
+    name: Publish to the Marketplace and Open VSX
+    needs: build
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: marketplace
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.build.outputs.sha }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: vscode/package.json
+
+      # Only for the lockfile-pinned vsce and ovsx; the .vsix is the build job's.
+      - run: make install
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: vsix
+          path: release
+
+      - name: Verify checksum
+        working-directory: release
+        run: sha256sum --check "${{ needs.build.outputs.vsix }}.sha256"
+
+      - name: Publish to the VS Code Marketplace
+        working-directory: vscode
+        env:
+          VSIX: ${{ github.workspace }}/release/${{ needs.build.outputs.vsix }}
+        run: pnpm exec vsce publish --oidc --packagePath "$VSIX" --skip-duplicate
+
+      - name: Publish to Open VSX
+        working-directory: vscode
+        env:
+          VSIX: ${{ github.workspace }}/release/${{ needs.build.outputs.vsix }}
+          # Empty once the secret is deleted; ovsx then uses Trusted Publishing.
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: pnpm exec ovsx publish --packagePath "$VSIX" --skip-duplicate
+
+  release:
+    name: GitHub release
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: vsix
+          path: release
+
+      - name: Create the release
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          SHA: ${{ needs.build.outputs.sha }}
+          VSIX: ${{ needs.build.outputs.vsix }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$VSIX" "$VSIX.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "$VSIX" "$VSIX.sha256" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SHA" \
+              --title "VS Code extension $TAG" \
+              --notes-file release-notes.md
+          fi
+          echo "Released $TAG: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" \
+            | tee -a "$GITHUB_STEP_SUMMARY"

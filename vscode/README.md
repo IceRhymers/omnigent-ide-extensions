@@ -1,73 +1,245 @@
-# omnigent-vscode
+# Omnigent for VS Code (Unofficial)
 
-VS Code extension that brings **Omnigent** into the editor: an Omnigent panel plus native editor
-commands (open/switch session, send selection, view/apply diffs).
+> **Unofficial community build.** This extension is not made, reviewed, or supported by
+> the Omnigent team or Databricks. Report problems at
+> [IceRhymers/omnigent-ide-extensions](https://github.com/IceRhymers/omnigent-ide-extensions/issues),
+> not to Omnigent. It is built from the Omnigent project's own VS Code extension
+> source (Apache-2.0); see [NOTICE](https://github.com/IceRhymers/omnigent-ide-extensions/blob/master/vscode/NOTICE).
 
-## How the panel renders
+A VS Code extension that opens [Omnigent](https://github.com/omnigent-ai/omnigent) inside
+the editor — an activity-bar Sessions view and an editor-beside pane that frames the same
+UI you see in your browser. It works with your **running local Omnigent server**
+(`http://127.0.0.1:6767`) or a **remote Omnigent server** you sign in to, including
+Omnigent on Databricks Apps and in Databricks workspaces. It is a thin client of the
+server's existing HTTP API
+([`omnigent/server/API.md`](https://github.com/omnigent-ai/omnigent/blob/main/omnigent/server/API.md));
+there is nothing new to run on the server side.
 
-By default the panel **iframes your running Omnigent server** (`renderMode: "iframe"`). The extension
-auto-discovers a local server (or uses `omnigent.serverUrl`) and loads it directly — the same UI you
-see at `http://127.0.0.1:6767`. This needs no separate web-app bundle.
+## Install
 
-- The iframe path is used for **local** servers (no token ever goes in a URL).
-- `renderMode: "embed"` selects the experimental in-process embed bundle (requires building
-  `media/apweb/` via `scripts/build-apweb.md`); it is not required for normal use.
+- **VS Code Marketplace:** search for **Omnigent (Unofficial)** in the Extensions view,
+  or run `code --install-extension publisher-id-placeholder.omnigent-vscode`
+  ([listing](https://marketplace.visualstudio.com/items?itemName=publisher-id-placeholder.omnigent-vscode)).
+- **Open VSX** (Cursor, Windsurf, VSCodium):
+  [open-vsx.org/extension/publisher-id-placeholder/omnigent-vscode](https://open-vsx.org/extension/publisher-id-placeholder/omnigent-vscode).
+- **VSIX:** download `omnigent-vscode-<version>.vsix` (and its `.sha256`) from
+  [GitHub Releases](https://github.com/IceRhymers/omnigent-ide-extensions/releases),
+  then run **Extensions: Install from VSIX…**.
 
-## Opening the panel
+Don't install this alongside another Omnigent extension (for example an official
+Omnigent build). Both register the same `omnigent.*` commands, settings and views and
+would conflict; uninstall the other one first. Your `omnigent.*` settings carry over.
 
-- Command **“Omnigent: Open”** (`omnigent.open`) or the rocket button on the panel title bar.
-- `omnigent.panelLocation` controls where it opens:
-  - `"editor"` (default) — opens as a webview pane **beside the editor** (`ViewColumn.Beside`).
-    This is the same mechanism the Claude Code extension uses for its conversation pane, so it
-    lands reliably on the right.
-  - `"right"` — targets the right **secondary side bar**. VS Code does not let an extension force
-    this placement, so it is best-effort: the first time, enable the secondary side bar
-    (View → Appearance → Secondary Side Bar, `⌥⌘B`) and drag the Omnigent view into it — VS Code
-    then remembers it permanently.
-  - `"left"` — the activity-bar sidebar (original location).
+Requirements: VS Code 1.74 or later, in a local window (see
+[Not supported yet](#not-supported-yet)). To run Omnigent on this computer you need the
+[Omnigent CLI](https://github.com/omnigent-ai/omnigent#quick-start); the extension
+offers its install command if it's missing.
 
-## Sessions
+## How it works
 
-“Omnigent: Open / Switch Session” creates a session against the server. Session create requires an
-**agent**: set `omnigent.defaultAgentId` to skip the prompt, otherwise the extension lists agents
-(`GET /v1/agents`) and lets you pick one. (Sending `agent_id` is what avoids the prior `422`.)
+- On activation the extension discovers a locally running server via
+  `~/.omnigent/local_server.pid` and a `/health` probe, or uses `omnigent.serverUrl`
+  when it is set.
+- The Omnigent activity-bar view lists your sessions. **This Folder** (the default)
+  shows sessions running on this computer in any open workspace folder, including every
+  git worktree of its repository. Use the folder/globe toolbar button to switch between
+  that scope and **All Sessions**. Click a session to open it in the editor-beside pane.
+- When the repository has more than one worktree, **This Folder** groups sessions by
+  worktree: the worktree this window has open comes first (expanded), then worktrees
+  with sessions waiting on you or running, then the rest. Each row shows the branch,
+  whether it's this window, and waiting/running counts; expand it to see its sessions.
+  Sessions in single-checkout repositories and plain folders stay in a flat list.
+- **Omnigent: Switch Worktree…** (the git-branch toolbar button) lists the repository's
+  worktrees with their session status and opens one in a new window, or in this window
+  when `omnigent.worktrees.openIn` is `currentWindow`. Opening keeps the subfolder you
+  had open when the worktree has it. A worktree row's inline and context actions open
+  it in a new or this window, open a terminal there, copy its path, or reveal it in the
+  OS file manager. Worktree navigation reads local git and works without a server.
+- **Omnigent: New Session in New Worktree…** (the repo-fork toolbar button) picks a
+  coding agent, a branch name (default `worktree-<hex>`), and a base — the main
+  checkout's HEAD or this window's branch — and asks the host to create the worktree
+  with the session, like the web app's worktree option. A worktree row's **+** creates
+  a session in that worktree without any new branch. A session in another worktree has
+  a **Go to Worktree** action: it opens that worktree's window with the session in the
+  pane, via a short-lived handoff the target window consumes on startup or focus.
+- The view's **+** button (**Omnigent: New Session in This Folder**) picks a coding
+  agent, marks agents whose CLI is unavailable on this computer, creates the session in
+  the current workspace folder, and opens its composer. The last-used agent comes first.
+  If this computer is not an online host on the connected server, the command offers to
+  connect it first.
+- The **Omnigent: Open** command (`omnigent.open`) — also on the editor title bar and in
+  the command palette — opens the pane. The Sessions view refreshes itself while it is
+  visible and the window is focused; its refresh button reloads it on demand. It checks
+  the 1,000 most recently updated sessions.
+- A **local** server is framed directly; it is loopback and needs no auth, so no token
+  ever appears in the iframe URL.
+- A **remote** server is framed through a proxy the extension runs on `127.0.0.1`. The
+  proxy forwards every request (including streams and WebSockets) to the server with
+  your session as `Authorization: Bearer`, so no cookie or token reaches the webview.
+  It answers only under a random per-launch path, and only for its own `Host` and
+  `Origin`.
+
+The extension collects no telemetry. It talks only to the Omnigent servers you open and,
+for Databricks sign-in, to your Databricks workspace.
+
+## Run Omnigent from VS Code
+
+These commands run the [Omnigent CLI](https://github.com/omnigent-ai/omnigent#quick-start)
+(`omnigent`, found on `PATH` or in `~/.local/bin`) in a VS Code terminal, so you can
+follow along and answer sign-in or setup prompts there. If the CLI isn't installed, the
+extension offers its install command.
+
+- **Omnigent: Start on This Computer** (`omnigent.startLocal`) runs
+  `omnigent start --server= --no-open`: a local server in the background with this
+  computer as its host, then opens it in the panel. The **No Omnigent server found**
+  page and the activity-bar view offer it too. Stop it with `omnigent stop`.
+- **Omnigent: Use This Computer as a Host** (`omnigent.hostHere`) runs
+  `omnigent start --server <server> --no-open` for the remote server the panel shows,
+  so its sessions can run here. A self-hosted server you haven't signed in to with the
+  CLI runs `omnigent login <server>` first; Databricks-hosted servers sign in during
+  `start`. On this computer's own server it does the same as **Start on This
+  Computer**. It's also in the panel's **…** menu.
+- **Omnigent: Set Up Unity Gateway…** (`omnigent.setUpUnityGateway`) runs
+  `omnigent setup`. Pick a coding agent, choose **+ Add a credential**, then
+  **Databricks — workspace**, and enter your workspace URL; the coding agents on this
+  computer then reach their models through the workspace's Unity Gateway. New sessions
+  use it; there's nothing to restart.
+
+The host keeps running in the background after VS Code quits.
+
+## Remote servers
+
+Run **Omnigent: Connect to Server…** (`omnigent.connect`) and pick **This computer**, a
+recent server, or **Enter server URL…** with the URL you open Omnigent at in your
+browser (for example `https://omnigent.example.com`). Remote servers must use `https`.
+The choice is saved to `omnigent.serverUrl`.
+
+How you sign in depends on the server:
+
+- **Single sign-on (OIDC)** — the panel shows **Sign in with browser**. Your browser
+  completes the sign-in and the panel continues on its own.
+- **Username and password (accounts)** — the server's own login page loads in the
+  panel.
+- If you already ran `omnigent login <server>` with the CLI, the panel reuses that
+  session (read-only; the extension never writes the CLI's token file).
+
+Sessions are kept in VS Code's secret storage and renewed before they expire.
+**Omnigent: Sign Out of Server** (`omnigent.signOut`) signs the panel out and stops it
+from reusing the CLI's session until you sign in again in VS Code; the CLI stays
+signed in.
+
+### Databricks Apps
+
+Omnigent deployed as a Databricks App (`https://<app>.databricksapps.com`) signs you in
+with your account on the workspace that hosts the app. The extension finds that
+workspace from the app's sign-in redirect (or from an earlier `omnigent login` to the
+app), then:
+
+- reuses the [Databricks CLI](https://docs.databricks.com/dev-tools/cli/)'s sign-in
+  when you have one: a `databricks-cli` profile for the workspace in
+  `~/.databrickscfg` (`DATABRICKS_CONFIG_PROFILE` is tried first), else
+  `databricks auth login --host <workspace>`. The extension only runs
+  `databricks auth token`; it never changes the CLI's sign-in;
+- otherwise shows **Sign in with Databricks**, which signs in through your browser.
+  If the workspace doesn't allow that, the panel asks you to run
+  `databricks auth login --host <workspace>` instead.
+
+If the app turns you away (for example, you don't have permission to use it), the
+panel shows the app's answer.
+
+### Databricks workspaces
+
+Omnigent hosted in a Databricks workspace opens from the workspace's Omnigent page,
+`https://<workspace>/omnigent` (the workspace root and its `/api/2.0/omnigent` API URL
+work too). It signs you in like a Databricks App does, with the Databricks CLI's
+sign-in for the workspace or **Sign in with Databricks**.
+
+The workspace's `/omnigent` page is part of the Databricks web app, which can't be
+framed, so the panel runs its own copy of the Omnigent app (built into the extension
+as `dist/web-ui`) and sends only the Omnigent API (`/api/2.0/omnigent/…`) to the
+workspace. **Open in Browser** still opens the workspace's own page.
+
+### Not supported yet
+
+- Servers behind a separate login service (`header` auth mode, e.g. an SSO proxy in
+  front of Omnigent).
+- Remote VS Code windows (SSH, containers, WSL, Codespaces).
+
+The panel says so when it meets one of these and offers to open the server in your
+browser instead.
 
 ## Settings
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `omnigent.serverUrl` | `""` | Manual server URL override; empty = auto-discover local. |
-| `omnigent.token` | `""` | Optional bearer override (prefer the CLI token file). |
-| `omnigent.renderMode` | `iframe` | `iframe` (default) or `embed`. |
-| `omnigent.panelLocation` | `editor` | `editor` (beside editor, like Claude Code) \| `right` (secondary side bar, best-effort) \| `left`. |
-| `omnigent.defaultAgentId` | `""` | Skip the agent picker on session create. |
-| `omnigent.defaultAgentName` | `""` | Agent name fallback when no id is set. |
+| `omnigent.serverUrl` | `""` | Server to open: a localhost URL (e.g. `http://127.0.0.1:6767`) or a remote `https://` URL; empty = auto-discover a local server. |
+| `omnigent.worktrees.openIn` | `"newWindow"` | Where **Switch Worktree…** opens a worktree: `newWindow` or `currentWindow`. |
+
+## Known limitations
+
+- Opening a different session from the tree reloads the framed app at that session;
+  navigation within the app itself does not reload it.
+- On macOS, VS Code does not deliver `Cmd+A/C/V` keystrokes into a cross-origin iframe
+  inside a webview, so keyboard paste into the framed app's inputs does not work there.
+  This is an upstream VS Code issue, not fixable from the extension for the iframe
+  render path — see microsoft/vscode#129178 and microsoft/vscode#182642. (The on-page
+  copy buttons and `navigator.clipboard` paths still work.)
+- With a remote server, steps that leave the server's site (for example **Connect
+  GitHub** or **Connect Databricks** in Settings) can't load in the panel; the panel
+  offers to continue them in your browser.
+- Magic links and invite links sign in your browser, not the panel.
+- Username-and-password servers ask you to sign in again when their session expires
+  (about every 8 hours by default), unless the panel is reusing a CLI session.
+- For a Databricks App, **Sign in with Databricks** uses the Databricks CLI's account
+  whenever the CLI is signed in to the workspace. To use a different account, sign the
+  CLI in with it (`databricks auth login --host <workspace>`) first. Signing out of
+  the panel doesn't sign the CLI out.
+- In a Databricks workspace the panel's app is the one this extension was built with,
+  not the workspace's, so it can be older or newer than the workspace's Omnigent
+  server. Features the Databricks web app adds around Omnigent (such as suggesting
+  people when you share) aren't in the panel.
+- Databricks workspaces are recognized by their `databricks.com` or
+  `azuredatabricks.net` host; one on a custom domain is treated as a self-hosted server.
+- A workspace URL's `?o=<workspace-id>` is ignored, so workspaces that share a host and
+  are told apart only by it aren't supported.
+- Dictation inside the panel hasn't been verified with remote servers.
 
 ## Build / test / package
 
-```
-bun install
-bun run type-check   # tsc --noEmit
-bun run test         # vitest run
-bun run build        # esbuild -> dist/extension.js
-bunx --bun @vscode/vsce package   # -> omnigent-vscode-<version>.vsix   (or: make package-vscode)
+From the repository root (needs Node 22+ and pnpm; `packageManager` pins the version):
+
+```bash
+make install         # pnpm install in vscode/
+make check           # format check, tsc --noEmit, vitest, esbuild -> dist/extension.js
+make submodule       # check out third_party/omnigent (the bundled web app's source)
+make web-deps        # install the web app's dependencies
+make build-web-ui    # web app -> vscode/dist/web-ui (+ dist/web-ui-licenses.md)
+make package-vscode  # build-web-ui, then vsce package -> vscode/omnigent-vscode-<version>.vsix
+make dev-vscode      # Extension Development Host (FOLDER=<path> to pick the folder)
+make install-vscode  # package and install into VS Code (OMNIGENT_VSCODE_CLI=cursor for Cursor)
 ```
 
-The `.vsix` runtime is `dist/extension.js` + `media/`. The default iframe render path is fully
-contained in `dist/extension.js`, so `media/apweb/` is only needed for the optional `embed` mode.
+The `.vsix` runtime is `dist/extension.js`, `dist/web-ui/` (the app served for
+Databricks workspaces) and `media/`. Without `dist/web-ui`, everything except Databricks
+workspaces still works; run `make build-web-ui` before debugging one with F5.
 
 ## Layout
 
 ```
 src/
-├── extension.ts          # activate()/deactivate() — wires config/discovery/auth, panel, commands
-├── api/client.ts         # /v1 REST client (sessions, agents, events, diffs, SSE)
-├── commands/             # openSession (agent picker), openPanel (omnigent.open), sendSelection, diffs
-├── panel/                # OmnigentViewProvider, host.ts (shared render), iframeHtml.ts, csp.ts, html.ts (embed)
-├── config/               # settings + server-target/host-type resolution
-├── discovery/            # local-server discovery (pidfile/health/liveness)
-└── auth/                 # token resolution + auth lifecycle
+├── extension.ts        # activate()/deactivate() — wires the panel, connection, commands, view
+├── commands/           # open/connect/session commands and start/host/setup commands
+├── cli/                # find the omnigent CLI and run it in a task terminal
+├── sessions/           # Sessions tree, HTTP client, host identity, scopes, worktrees, harness labels
+├── panel/              # EditorPanelController, host.ts (render), iframeHtml.ts, csp.ts
+├── config/             # settings + server-target resolution
+├── discovery/          # local-server discovery (pidfile / health / liveness)
+├── servers/            # remote-server recognition, the active connection, recents
+├── auth/               # browser sign-in (Omnigent, Databricks), CLI session reuse, stored credentials
+├── proxy/              # the loopback credential proxy and its own pages
+├── net/                # back-channel JSON requests
+└── vendor/omnigent/    # URL and loopback-OAuth helpers copied from upstream (PROVENANCE.md)
 ```
 
-The discovery/auth contract is `../docs/discovery-auth.md` with shared conformance vectors in
-`../docs/conformance/*.json` (kept in sync with the IntelliJ implementation).
+Licensed under Apache-2.0 (see `LICENSE` and `NOTICE`). Where this code comes from and
+how upstream changes are brought in: [PROVENANCE.md](https://github.com/IceRhymers/omnigent-ide-extensions/blob/master/vscode/PROVENANCE.md).

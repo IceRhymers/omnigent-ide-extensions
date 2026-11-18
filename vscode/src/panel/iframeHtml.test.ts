@@ -1,5 +1,5 @@
 /**
- * Unit tests for buildIframeHtml — pure host HTML for the default iframe render mode.
+ * Unit tests for buildIframeHtml — the pure, static iframe host page.
  */
 import { describe, it, expect } from "vitest";
 import { buildIframeHtml } from "./iframeHtml";
@@ -18,21 +18,10 @@ describe("buildIframeHtml", () => {
     expect(buildIframeHtml(baseOpts)).toContain('http-equiv="Content-Security-Policy"');
   });
 
-  it("renders an iframe pointed at the base URL when no route is given", () => {
+  it("renders an iframe pointed at the base URL", () => {
     const html = buildIframeHtml(baseOpts);
     expect(html).toContain('id="omnigent-frame"');
     expect(html).toContain('src="http://127.0.0.1:6767"');
-  });
-
-  it("bakes the initial route into the iframe src", () => {
-    const html = buildIframeHtml({ ...baseOpts, route: "/c/conv_abc" });
-    expect(html).toContain('src="http://127.0.0.1:6767/c/conv_abc"');
-  });
-
-  it("treats route '/' as the bare base (no trailing slash)", () => {
-    const html = buildIframeHtml({ ...baseOpts, route: "/" });
-    expect(html).toContain('src="http://127.0.0.1:6767"');
-    expect(html).not.toContain('src="http://127.0.0.1:6767/"');
   });
 
   it("strips a trailing slash from the base URL", () => {
@@ -41,27 +30,27 @@ describe("buildIframeHtml", () => {
     expect(html).not.toContain('src="http://127.0.0.1:6767/"');
   });
 
-  it("stamps the nonce on the style and shim script", () => {
+  it("opens a session route under the same framed base URL", () => {
+    const html = buildIframeHtml({ ...baseOpts, path: "/c/conv_123" });
+    expect(html).toContain('src="http://127.0.0.1:6767/c/conv_123"');
+  });
+
+  it("refuses routes that could navigate to another origin", () => {
+    expect(() => buildIframeHtml({ ...baseOpts, path: "//evil.example" })).toThrow("non-app path");
+    expect(() => buildIframeHtml({ ...baseOpts, path: "https://evil.example" })).toThrow(
+      "non-app path",
+    );
+  });
+
+  it("stamps the nonce on the style", () => {
+    expect(buildIframeHtml(baseOpts)).toContain(`<style nonce="${NONCE}">`);
+  });
+
+  it("is a static page: no inline script and no vscode api handshake", () => {
     const html = buildIframeHtml(baseOpts);
-    expect(html).toContain(`<style nonce="${NONCE}">`);
-    expect(html).toContain(`<script nonce="${NONCE}">`);
-  });
-
-  it("shim acquires the vscode api and handles omnigent/navigate via the BARE base", () => {
-    const html = buildIframeHtml({ ...baseOpts, route: "/c/conv_abc" });
-    expect(html).toContain("acquireVsCodeApi()");
-    expect(html).toContain("omnigent/navigate");
-    // The navigate handler must append the route to the bare base, NOT to the
-    // route-bearing initial src — otherwise navigation doubles the path.
-    expect(html).toContain('var baseUrl = "http://127.0.0.1:6767"');
-    expect(html).toContain("baseUrl.replace(/\\/$/, \"\") + msg.route");
-  });
-
-  it("regression: navigate shim base never carries the initial route (no /c/x/c/x)", () => {
-    // With an initial conversation route, the shim's base must still be bare so a
-    // subsequent omnigent/navigate produces base + route, never base+route + route.
-    const html = buildIframeHtml({ ...baseOpts, route: "/c/conv_abc" });
-    expect(html).not.toContain('var baseUrl = "http://127.0.0.1:6767/c/conv_abc"');
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("acquireVsCodeApi");
+    expect(html).not.toContain("omnigent/navigate");
   });
 
   it("never injects a token into the iframe URL", () => {
@@ -72,7 +61,6 @@ describe("buildIframeHtml", () => {
 
   it("escapes attribute-breaking quotes in the iframe src attribute", () => {
     const html = buildIframeHtml({ ...baseOpts, baseUrl: 'http://x"y' });
-    // The src attribute value must not contain a raw double quote that closes it early.
     expect(html).not.toContain('src="http://x"y"');
     expect(html).toContain("&quot;");
   });
@@ -82,7 +70,6 @@ describe("buildIframeHtml", () => {
   });
 
   it("delegates clipboard permission to the iframe so copy/paste works in the webview", () => {
-    const html = buildIframeHtml(baseOpts);
-    expect(html).toContain('allow="clipboard-read; clipboard-write"');
+    expect(buildIframeHtml(baseOpts)).toContain('allow="clipboard-read; clipboard-write"');
   });
 });

@@ -1,36 +1,34 @@
 /**
- * AC14 (reconciliation) + AC15 (re-render-if-open) for EditorPanelController.
- *
- * The controller is the sole owner of the editor WebviewPanel and the only
- * navigation path. These tests use a FAKE editor WebviewPanel (createWebviewPanel
- * spy) and a REMOTE server target so the embed render path is taken — that path
- * is the one that posts {type:"omnigent/navigate"} to the panel's webview, which
- * is exactly what every entry point must drive (NOT a sidebar provider).
+ * Tests for EditorPanelController — the sole owner of the editor WebviewPanel.
+ * Uses a FAKE WebviewPanel (createWebviewPanel replaced) and a LOCAL target so
+ * the iframe render path is taken (the only path in this build).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { Mock } from "vitest";
 import * as vscode from "vscode";
 import { EditorPanelController } from "./EditorPanelController";
 import type { ServerTarget } from "../config";
 
-const REMOTE_TARGET: ServerTarget = {
-  baseUrl: "https://omni.example.com",
-  origin: "https://omni.example.com",
-  hostType: "remote", // forces the embed path (shouldUseIframe === false)
-  source: "manual",
+const LOCAL_TARGET: ServerTarget = {
+  baseUrl: "http://127.0.0.1:6767",
+  origin: "http://127.0.0.1:6767",
+  hostType: "local",
+  source: "discovered",
 };
 
-/** A fake WebviewPanel that records every message posted to its webview. */
+/** A fake WebviewPanel that records html set on its webview. */
 function makeFakePanel() {
-  const posted: Array<Record<string, unknown>> = [];
   let disposeCb: (() => void) | undefined;
+  let messageCb: ((message: unknown) => void) | undefined;
   const panel = {
     webview: {
       html: "",
       cspSource: "vscode-resource:",
       asWebviewUri: (uri: { toString(): string }) => uri,
-      postMessage: (msg: Record<string, unknown>) => {
-        posted.push(msg);
-        return true;
+      postMessage: () => true,
+      onDidReceiveMessage: (cb: (message: unknown) => void) => {
+        messageCb = cb;
+        return { dispose: () => {} };
       },
     },
     reveal: vi.fn(),
@@ -40,7 +38,7 @@ function makeFakePanel() {
     },
     dispose: vi.fn(() => disposeCb?.()),
   };
-  return { panel, posted };
+  return { panel, postFromWebview: (message: unknown) => messageCb?.(message) };
 }
 
 function makeController() {
@@ -51,14 +49,12 @@ function makeController() {
 
 describe("EditorPanelController", () => {
   let fake: ReturnType<typeof makeFakePanel>;
-  // spyOn's key constraint excludes createWebviewPanel under @types/vscode, so
-  // createWebviewPanel is replaced on the mock object directly with a plain mock fn.
-  let createSpy: ReturnType<typeof vi.fn<unknown[], unknown>>;
+  let createSpy: Mock<() => ReturnType<typeof makeFakePanel>["panel"]>;
 
   beforeEach(() => {
     fake = makeFakePanel();
     const win = vscode.window as unknown as Record<string, unknown>;
-    createSpy = vi.fn<unknown[], unknown>(() => fake.panel);
+    createSpy = vi.fn(() => fake.panel);
     win.createWebviewPanel = createSpy;
   });
 
@@ -66,67 +62,133 @@ describe("EditorPanelController", () => {
     vi.restoreAllMocks();
   });
 
-  it("AC14: navigate posts omnigent/navigate to THIS editor panel's webview (openSession path)", () => {
+  it("ensure() creates a single panel and renders the iframe for a resolved local target", () => {
     const controller = makeController();
-    controller.setResolved(REMOTE_TARGET);
+    controller.setResolved(LOCAL_TARGET);
+    controller.ensure();
 
-    controller.navigate("/c/conv_abc");
-
-    // Exactly one panel was created (the editor panel) and it was navigated.
     expect(createSpy).toHaveBeenCalledTimes(1);
-    expect(fake.posted).toContainEqual({ type: "omnigent/navigate", route: "/c/conv_abc" });
+    expect(fake.panel.webview.html).toContain('id="omnigent-frame"');
+    expect(fake.panel.webview.html).toContain('src="http://127.0.0.1:6767"');
   });
 
-  it("AC14: openSessionFromTree-style navigate reuses the same panel and posts to it", () => {
+  it("ensure() reuses and reveals the existing panel (no second panel)", () => {
     const controller = makeController();
-    controller.setResolved(REMOTE_TARGET);
+    controller.setResolved(LOCAL_TARGET);
+    controller.ensure();
+    controller.ensure();
 
-    // First navigation (e.g. openSession), then a tree-driven navigation.
-    controller.navigate("/c/conv_first");
-    fake.posted.length = 0;
-    controller.navigate("/c/conv_second");
-
-    // No second panel created — the existing editor panel is reused & revealed.
     expect(createSpy).toHaveBeenCalledTimes(1);
     expect(fake.panel.reveal).toHaveBeenCalled();
-    expect(fake.posted).toContainEqual({ type: "omnigent/navigate", route: "/c/conv_second" });
   });
 
-  it("AC15: opening the panel before setResolved, then setResolved, (re-)renders it", () => {
+  it("opening before setResolved shows the placeholder, then setResolved re-renders the iframe", () => {
     const controller = makeController();
 
-    // Panel opened during the async auth window — no resolved target yet.
     controller.ensure();
     expect(controller.isOpen()).toBe(true);
-    const htmlBefore = fake.panel.webview.html;
-    expect(htmlBefore).toContain("Resolving"); // placeholder
+    expect(fake.panel.webview.html).toContain("Resolving");
 
-    // Resolution arrives → the already-open panel must be re-rendered.
-    controller.setResolved(REMOTE_TARGET);
-    // Embed path posts the init handshake to the now-resolved panel.
-    expect(fake.posted).toContainEqual(
-      expect.objectContaining({ type: "omnigent/init", serverUrl: REMOTE_TARGET.baseUrl }),
-    );
-    // Still the same single panel.
+    controller.setResolved(LOCAL_TARGET);
+    expect(fake.panel.webview.html).toContain('id="omnigent-frame"');
     expect(createSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("ensure() preserves an already-navigated route on reveal (C2)", () => {
+  it("never injects a token into the rendered html", () => {
     const controller = makeController();
-    controller.setResolved(REMOTE_TARGET);
-    controller.navigate("/c/conv_route");
-    fake.posted.length = 0;
+    controller.setResolved(LOCAL_TARGET);
+    controller.ensure();
+    expect(fake.panel.webview.html.toLowerCase()).not.toContain("token");
+  });
 
-    // A bare ensure() (e.g. omnigent.open) must not reset route to "/".
+  it("frames a remote server through its loopback proxy entry URL", () => {
+    const controller = makeController();
+    controller.setResolved({
+      baseUrl: "http://127.0.0.1:53001/c2VjcmV0/",
+      origin: "http://127.0.0.1:53001",
+      hostType: "remote",
+      source: "manual",
+      displayUrl: "https://omnigent.example.com",
+    });
     controller.ensure();
 
-    const init = fake.posted.find((m) => m.type === "omnigent/init");
-    expect(init?.route).toBe("/c/conv_route");
+    expect(fake.panel.webview.html).toContain('src="http://127.0.0.1:53001/c2VjcmV0"');
+    expect(fake.panel.webview.html).toContain("frame-src http://127.0.0.1:53001");
+    expect(fake.panel.webview.html).not.toContain("omnigent.example.com");
+  });
+
+  it("openPath() reveals the existing panel directly at a session", () => {
+    const controller = makeController();
+    controller.setResolved(LOCAL_TARGET);
+    controller.ensure();
+
+    controller.openPath("/c/conv_123");
+
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(fake.panel.reveal).toHaveBeenCalled();
+    expect(fake.panel.webview.html).toContain('src="http://127.0.0.1:6767/c/conv_123"');
+  });
+
+  it("returns to the home route when the panel starts resolving another server", () => {
+    const controller = makeController();
+    controller.setResolved(LOCAL_TARGET);
+    controller.openPath("/c/conv_123");
+    controller.setResolving("Connecting elsewhere…");
+    controller.setResolved({ ...LOCAL_TARGET, baseUrl: "http://127.0.0.1:7000" });
+
+    expect(fake.panel.webview.html).toContain('src="http://127.0.0.1:7000"');
+    expect(fake.panel.webview.html).not.toContain("conv_123");
+  });
+
+  it("does not carry an old session through an error page onto another server", () => {
+    const controller = makeController();
+    controller.setResolved(LOCAL_TARGET);
+    controller.openPath("/c/old-server-session");
+    controller.setMessage({ title: "Disconnected", detail: "Try another server." });
+    controller.setResolved({ ...LOCAL_TARGET, baseUrl: "http://127.0.0.1:7000" });
+
+    expect(fake.panel.webview.html).toContain('src="http://127.0.0.1:7000"');
+    expect(fake.panel.webview.html).not.toContain("old-server-session");
+  });
+
+  it("shows a status message whose buttons run their actions", () => {
+    const controller = makeController();
+    const retry = vi.fn();
+    const connect = vi.fn();
+    controller.ensure();
+    controller.setMessage({
+      title: "Couldn't reach omnigent.example.com",
+      detail: "Check your network.",
+      actions: [
+        { label: "Retry", run: retry },
+        { label: "Connect…", run: connect },
+      ],
+    });
+
+    expect(fake.panel.webview.html).toContain("Couldn&#39;t reach omnigent.example.com");
+    fake.postFromWebview({ type: "action", index: 1 });
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+
+    // Once the app is showing, stale clicks from the old page do nothing.
+    controller.setResolved(LOCAL_TARGET);
+    fake.postFromWebview({ type: "action", index: 0 });
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("reload() re-renders the framed app with a fresh nonce", () => {
+    const controller = makeController();
+    controller.setResolved(LOCAL_TARGET);
+    controller.ensure();
+    const before = fake.panel.webview.html;
+    controller.reload();
+    expect(fake.panel.webview.html).toContain('id="omnigent-frame"');
+    expect(fake.panel.webview.html).not.toBe(before);
   });
 
   it("dispose() disposes the panel and nulls the ref; onDidDispose does not double-clear", () => {
     const controller = makeController();
-    controller.setResolved(REMOTE_TARGET);
+    controller.setResolved(LOCAL_TARGET);
     controller.ensure();
     expect(controller.isOpen()).toBe(true);
 
